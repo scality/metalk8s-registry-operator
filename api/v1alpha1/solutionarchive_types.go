@@ -17,38 +17,50 @@ limitations under the License.
 package v1alpha1
 
 import (
+	rnav1alpha1 "github.com/scality/metalk8s-registry-node-agent/api/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
-
-// SolutionArchiveSpec defines the desired state of SolutionArchive.
-type SolutionArchiveSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-
-	// Foo is an example field of SolutionArchive. Edit solutionarchive_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
+type NodeSolutionArchiveStatus struct {
+	// True, when the NodeSolutionArchive is in Served status
+	Served bool `json:"served,omitempty"`
 }
 
 // SolutionArchiveStatus defines the observed state of SolutionArchive.
 type SolutionArchiveStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	// True, when, at least, one NodeSolutionArchive in Served status
+	Served *bool `json:"served,omitempty"`
+	// True, when all NodeSolutionArchive in Served status
+	Replicated *bool `json:"replicated,omitempty"`
+	// Number of NodeSolutionArchive in Served status
+	ServedReplicas *int `json:"servedReplicas,omitempty"`
+	// Expected number of NodeSolutionArchive in Served status
+	TargetReplicas *int `json:"targetReplicas,omitempty"`
+	// List of NodeSolutionArchive names
+	NodeSolutionArchives []string `json:"nodeSolutionArchives,omitempty"`
+	// Status of each NodeSolutionArchive
+	StatusPerNodeSolutionArchive map[string]NodeSolutionArchiveStatus `json:"statusPerNodeSolutionArchive,omitempty"`
+	Conditions                   []metav1.Condition                   `json:"conditions,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Cluster
 
+// +kubebuilder:printcolumn:name="Solution",type="string",JSONPath=".spec.name"
+// +kubebuilder:printcolumn:name="Version",type="string",JSONPath=".spec.version"
+// +kubebuilder:printcolumn:name="Served",type="boolean",JSONPath=".status.served",priority=1
+// +kubebuilder:printcolumn:name="Replicated",type="boolean",JSONPath=".status.replicated"
+// +kubebuilder:printcolumn:name="Replicas",type="integer",JSONPath=".status.servedReplicas"
+// +kubebuilder:printcolumn:name="Target",type="integer",JSONPath=".status.targetReplicas"
+// +kubebuilder:printcolumn:name="Node Solution Archives",type="string",JSONPath=".status.nodeSolutionArchives",priority=1
 // SolutionArchive is the Schema for the solutionarchives API.
 type SolutionArchive struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   SolutionArchiveSpec   `json:"spec,omitempty"`
-	Status SolutionArchiveStatus `json:"status,omitempty"`
+	Spec   rnav1alpha1.SolutionArchiveSpec `json:"spec,omitempty"`
+	Status SolutionArchiveStatus           `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true
