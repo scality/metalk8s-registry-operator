@@ -22,6 +22,9 @@ resources:
 # default, aiding admins in cluster management. Those roles are
 # not used by the metalk8s-registry-operator itself. You can comment the following lines
 # if you do not want those helpers be installed with your Project.
+- registry_admin_role.yaml
+- registry_editor_role.yaml
+- registry_viewer_role.yaml
 - solutionarchive_admin_role.yaml
 - solutionarchive_editor_role.yaml
 - solutionarchive_viewer_role.yaml
