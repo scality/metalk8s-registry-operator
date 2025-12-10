@@ -1,0 +1,4 @@
+## Append samples of your project ##
+resources:
+- metalk8s_v1alpha1_solutionarchive.yaml
+# +kubebuilder:scaffold:manifestskustomizesamples
