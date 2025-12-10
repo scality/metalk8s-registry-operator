@@ -27,6 +27,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	rnav1alpha1 "github.com/scality/metalk8s-registry-node-agent/api/v1alpha1"
 	metalk8sv1alpha1 "github.com/scality/metalk8s-registry-operator/api/v1alpha1"
 )
 
@@ -51,7 +52,16 @@ var _ = Describe("SolutionArchive Controller", func() {
 						Name:      resourceName,
 						Namespace: "default",
 					},
-					// TODO(user): Specify other spec details if needed.
+					Spec: rnav1alpha1.SolutionArchiveSpec{
+						Name:    "my-new-solution",
+						Version: "1.2.0",
+						Validation: rnav1alpha1.SolutionArchiveValidation{
+							Checksum: rnav1alpha1.SolutionArchiveChecksum{
+								Type:  "sha256",
+								Value: "123abc",
+							},
+						},
+					},
 				}
 				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
 			}

@@ -6,4 +6,30 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
   name: registry-sample
 spec:
-  # TODO(user): Add fields here
+  namespace: my-namespace
+  nodeSelector:
+    kubernetes.io/os: linux
+    node-role.kubernetes.io/registry: ''
+  server:
+    certificateIssuerRef:
+      name: registry-server-issuer
+      kind: ClusterIssuer
+    image:
+      registry: ghcr.io/scality
+      name: metalk8s-registry-server
+      tag: v1.0.0
+      pullPolicy: IfNotPresent
+  agent:
+    certificateIssuerRef:
+      name: registry-agent-issuer
+      kind: ClusterIssuer
+    authentication:
+      mtls:
+        caSecretRef:
+          name: registry-agent-mtls-ca
+          namespace: my-namespace
+    image:
+      registry: ghcr.io/scality
+      name: metalk8s-registry-agent
+      tag: v1.2.3
+      pullPolicy: IfNotPresent

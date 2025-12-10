@@ -23,8 +23,11 @@ import (
 	. "github.com/onsi/gomega"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	cmmetav1 "github.com/cert-manager/cert-manager/pkg/apis/meta/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	metalk8sv1alpha1 "github.com/scality/metalk8s-registry-operator/api/v1alpha1"
@@ -37,8 +40,7 @@ var _ = Describe("Registry Controller", func() {
 		ctx := context.Background()
 
 		typeNamespacedName := types.NamespacedName{
-			Name:      resourceName,
-			Namespace: "default", // TODO(user):Modify as needed
+			Name: resourceName,
 		}
 		registry := &metalk8sv1alpha1.Registry{}
 
@@ -48,10 +50,47 @@ var _ = Describe("Registry Controller", func() {
 			if err != nil && errors.IsNotFound(err) {
 				resource := &metalk8sv1alpha1.Registry{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      resourceName,
-						Namespace: "default",
+						Name: resourceName,
 					},
-					// TODO(user): Specify other spec details if needed.
+					Spec: metalk8sv1alpha1.RegistrySpec{
+						Namespace: ptr.To("my-namespace"),
+						NodeSelector: map[string]string{
+							"kubernetes.io/os":                 "linux",
+							"node-role.kubernetes.io/registry": "",
+						},
+						Server: metalk8sv1alpha1.RegistryServerSpec{
+							CertificateIssuerRef: cmmetav1.ObjectReference{
+								Name: "registry-server-issuer",
+								Kind: "ClusterIssuer",
+							},
+							Image: &metalk8sv1alpha1.ImageSpec{
+								Registry:   "ghcr.io/scality",
+								Name:       "metalk8s-registry-server",
+								Tag:        ptr.To("v1.0.0"),
+								PullPolicy: ptr.To(corev1.PullIfNotPresent),
+							},
+						},
+						Agent: metalk8sv1alpha1.RegistryNodeAgentSpec{
+							CertificateIssuerRef: cmmetav1.ObjectReference{
+								Name: "registry-agent-issuer",
+								Kind: "ClusterIssuer",
+							},
+							Authentication: metalk8sv1alpha1.AuthenticationSpec{
+								MTLS: metalk8sv1alpha1.MTLSAuthenticationSpec{
+									CASecretRef: corev1.SecretReference{
+										Name:      "registry-agent-mtls-ca",
+										Namespace: "my-namespace",
+									},
+								},
+							},
+							Image: &metalk8sv1alpha1.ImageSpec{
+								Registry:   "ghcr.io/scality",
+								Name:       "metalk8s-registry-agent",
+								Tag:        ptr.To("v1.2.3"),
+								PullPolicy: ptr.To(corev1.PullIfNotPresent),
+							},
+						},
+					},
 				}
 				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
 			}

@@ -6,4 +6,9 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
   name: solutionarchive-sample
 spec:
-  # TODO(user): Add fields here
+  name: my-new-solution
+  version: "1.2.0"
+  validation:
+    checksum:
+      type: sha256
+      value: "123abc"
