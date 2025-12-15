@@ -64,6 +64,7 @@ func (r *SolutionArchiveReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 	// Ensure we update the status in case of early return
 	original := solutionArchive.DeepCopy()
+	solutionArchive.InitStatus()
 	defer func() {
 		if err := r.Status().Patch(ctx, solutionArchive, client.MergeFrom(original)); err != nil {
 			log.Error(err, "unable to patch SolutionArchive status")

@@ -19,6 +19,7 @@ package v1alpha1
 import (
 	rnav1alpha1 "github.com/scality/metalk8s-registry-node-agent/api/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 )
 
 type NodeSolutionArchiveStatus struct {
@@ -74,4 +75,22 @@ type SolutionArchiveList struct {
 
 func init() {
 	SchemeBuilder.Register(&SolutionArchive{}, &SolutionArchiveList{})
+}
+
+func (solutionArchive *SolutionArchive) InitStatus() {
+	if solutionArchive.Status.Served == nil {
+		solutionArchive.Status.Served = ptr.To(false)
+	}
+	if solutionArchive.Status.Replicated == nil {
+		solutionArchive.Status.Replicated = ptr.To(false)
+	}
+	if solutionArchive.Status.ServedReplicas == nil {
+		solutionArchive.Status.ServedReplicas = ptr.To(0)
+	}
+	if solutionArchive.Status.TargetReplicas == nil {
+		solutionArchive.Status.TargetReplicas = ptr.To(0)
+	}
+	if solutionArchive.Status.NodeSolutionArchives == nil {
+		solutionArchive.Status.NodeSolutionArchives = []string{}
+	}
 }
