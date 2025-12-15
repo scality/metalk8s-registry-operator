@@ -7,6 +7,15 @@ rules:
 - apiGroups:
   - metalk8s.scality.com
   resources:
+  - nodesolutionarchives
+  verbs:
+  - create
+  - get
+  - list
+  - watch
+- apiGroups:
+  - metalk8s.scality.com
+  resources:
   - registries
   - solutionarchives
   verbs:
