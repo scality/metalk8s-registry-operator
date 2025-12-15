@@ -17,6 +17,7 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"flag"
 	"os"
@@ -32,6 +33,7 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/certwatcher"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
@@ -41,6 +43,7 @@ import (
 	nsav1alpha1 "github.com/scality/metalk8s-registry-node-agent/api/v1alpha1"
 	metalk8sv1alpha1 "github.com/scality/metalk8s-registry-operator/api/v1alpha1"
 	"github.com/scality/metalk8s-registry-operator/internal/controller"
+	"github.com/scality/metalk8s-registry-operator/internal/utils"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -223,6 +226,26 @@ func main() {
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder
+
+	// Create a field index for the NodeSolutionArchive object
+	// This will allow us to quickly find the NodeSolutionArchive object by its Name and Version
+	nsaNameVersion := func(rawObj client.Object) []string {
+		versionedNamed := utils.GetNodeSolutionArchiveVersionedName(
+			rawObj.(*nsav1alpha1.NodeSolutionArchive).Spec.Name,
+			rawObj.(*nsav1alpha1.NodeSolutionArchive).Spec.Version,
+		)
+		return []string{versionedNamed}
+	}
+	err = mgr.GetFieldIndexer().IndexField(
+		context.Background(),
+		&nsav1alpha1.NodeSolutionArchive{},
+		"NodeSolutionArchiveNameVersion",
+		nsaNameVersion,
+	)
+	if err != nil {
+		setupLog.Error(err, "failed to create field index for NodeSolutionArchive")
+		os.Exit(1)
+	}
 
 	if metricsCertWatcher != nil {
 		setupLog.Info("Adding metrics certificate watcher to manager")

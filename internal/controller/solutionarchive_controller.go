@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -28,6 +29,7 @@ import (
 
 	nsav1alpha1 "github.com/scality/metalk8s-registry-node-agent/api/v1alpha1"
 	metalk8sv1alpha1 "github.com/scality/metalk8s-registry-operator/api/v1alpha1"
+	"github.com/scality/metalk8s-registry-operator/internal/utils"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -40,7 +42,7 @@ type SolutionArchiveReconciler struct {
 // +kubebuilder:rbac:groups=metalk8s.scality.com,resources=solutionarchives,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=metalk8s.scality.com,resources=solutionarchives/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=metalk8s.scality.com,resources=solutionarchives/finalizers,verbs=update
-// +kubebuilder:rbac:groups=metalk8s.scality.com,resources=nodesolutionarchives,verbs=get;list;watch;create
+// +kubebuilder:rbac:groups=metalk8s.scality.com,resources=nodesolutionarchives,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -73,14 +75,27 @@ func (r *SolutionArchiveReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 	if len(registryList.Items) != 1 {
 		log.Info("exactly one Registry object is required", "found", len(registryList.Items))
+		// When deleting registry resource, we need to delete all NodeSolutionArchive objects
+		err := r.deleteUnexpectedNodeSolutionArchives(ctx, solutionArchive, []string{})
+		return ctrl.Result{}, err
 	}
 	registry := registryList.Items[0]
 
 	// 3. Generate NodeSolutionArchive objects for all nodes
 	//    If no nodes are defined on registry resource, ignore
 	//    It will reconcile later when registry will update its status
-	if len(registry.Status.SelectedNodes) == 0 {
+	targetReplicas := len(registry.Status.SelectedNodes)
+	if targetReplicas == 0 {
 		log.Info("no nodes defined from the Registry")
+		// When unlabeling all nodes, we need to delete all NodeSolutionArchive objects
+		err := r.deleteUnexpectedNodeSolutionArchives(ctx, solutionArchive, []string{})
+		return ctrl.Result{}, err
+	}
+
+	// When unlabeling some nodes, we need to delete previously created NodeSolutionArchive objects
+	err := r.deleteUnexpectedNodeSolutionArchives(ctx, solutionArchive, registry.Status.SelectedNodes)
+	if err != nil {
+		return ctrl.Result{}, err
 	}
 
 	log.V(1).Info("generating NodeSolutionArchive objects for all nodes", "nodes", registry.Status.SelectedNodes)
@@ -123,6 +138,27 @@ func (r *SolutionArchiveReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		}
 	}
 	return ctrl.Result{}, nil
+}
+
+func (r *SolutionArchiveReconciler) deleteUnexpectedNodeSolutionArchives(ctx context.Context, solutionArchive *metalk8sv1alpha1.SolutionArchive, selectedNodes []string) error {
+	nodeSolutionArchiveVersionName := utils.GetNodeSolutionArchiveVersionedName(
+		solutionArchive.Spec.Name,
+		solutionArchive.Spec.Version,
+	)
+	nodeSolutionArchiveList := &nsav1alpha1.NodeSolutionArchiveList{}
+	if err := r.List(ctx, nodeSolutionArchiveList, client.MatchingFields{"NodeSolutionArchiveNameVersion": nodeSolutionArchiveVersionName}); err != nil {
+		return fmt.Errorf("error getting NodeSolutionArchive: %w", err)
+	}
+
+	for _, nodeSolutionArchive := range nodeSolutionArchiveList.Items {
+		if !slices.Contains(selectedNodes, nodeSolutionArchive.Spec.NodeName) {
+			if err := r.Delete(ctx, &nodeSolutionArchive); err != nil {
+				return fmt.Errorf("error deleting NodeSolutionArchive: %w", err)
+			}
+		}
+	}
+
+	return nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
