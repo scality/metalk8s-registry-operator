@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -32,14 +33,47 @@ import (
 )
 
 var _ = Describe("SolutionArchive Controller", func() {
+	const registryName = "registry-sample"
+	registryNamespacedName := types.NamespacedName{
+		Name: registryName,
+	}
+	registry := &metalk8sv1alpha1.Registry{}
+
+	BeforeEach(func() {
+		By("creating a registry resource")
+		err := k8sClient.Get(ctx, registryNamespacedName, registry)
+		if err != nil && errors.IsNotFound(err) {
+			resource := &metalk8sv1alpha1.Registry{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: registryName,
+				},
+				Spec: metalk8sv1alpha1.RegistrySpec{
+					NodeSelector: map[string]string{
+						"kubernetes.io/os":                 "linux",
+						"node-role.kubernetes.io/registry": "",
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, resource)).To(Succeed())
+		}
+	})
+
+	AfterEach(func() {
+		resource := &metalk8sv1alpha1.Registry{}
+		err := k8sClient.Get(ctx, registryNamespacedName, resource)
+		Expect(err).NotTo(HaveOccurred())
+
+		By("Cleanup the specific resource instance Registry")
+		Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
+	})
+
 	Context("When reconciling a resource", func() {
 		const resourceName = "test-resource"
 
 		ctx := context.Background()
 
 		typeNamespacedName := types.NamespacedName{
-			Name:      resourceName,
-			Namespace: "default", // TODO(user):Modify as needed
+			Name: resourceName,
 		}
 		solutionarchive := &metalk8sv1alpha1.SolutionArchive{}
 
@@ -65,10 +99,12 @@ var _ = Describe("SolutionArchive Controller", func() {
 				}
 				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
 			}
+			// Wait for the resource to be created
+			time.Sleep(1 * time.Second)
 		})
 
 		AfterEach(func() {
-			// TODO(user): Cleanup logic after each test, like removing the resource instance.
+			// Cleanup
 			resource := &metalk8sv1alpha1.SolutionArchive{}
 			err := k8sClient.Get(ctx, typeNamespacedName, resource)
 			Expect(err).NotTo(HaveOccurred())

@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -94,6 +95,8 @@ var _ = Describe("Registry Controller", func() {
 				}
 				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
 			}
+			// Wait for the resource to be created
+			time.Sleep(1 * time.Second)
 		})
 
 		AfterEach(func() {

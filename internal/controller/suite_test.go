@@ -21,18 +21,23 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
+	nsav1alpha1 "github.com/scality/metalk8s-registry-node-agent/api/v1alpha1"
 	metalk8sv1alpha1 "github.com/scality/metalk8s-registry-operator/api/v1alpha1"
+	"github.com/scality/metalk8s-registry-operator/internal/utils"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -62,11 +67,17 @@ var _ = BeforeSuite(func() {
 	err = metalk8sv1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
+	err = nsav1alpha1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
 	// +kubebuilder:scaffold:scheme
 
 	By("bootstrapping test environment")
 	testEnv = &envtest.Environment{
-		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "config", "crd", "bases")},
+		CRDDirectoryPaths: []string{
+			filepath.Join("..", "..", "config", "crd", "bases"),
+			filepath.Join("..", "..", "dist", "crds"),
+		},
 		ErrorIfCRDPathMissing: true,
 	}
 
@@ -80,9 +91,44 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 	Expect(cfg).NotTo(BeNil())
 
-	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
+	// Create a manager to get a client with field indexing support
+	k8sManager, err := ctrl.NewManager(cfg, ctrl.Options{
+		Scheme: scheme.Scheme,
+		Metrics: metricsserver.Options{
+			BindAddress: "0", // Disable metrics server
+		},
+	})
 	Expect(err).NotTo(HaveOccurred())
+
+	// Create a field index for the NodeSolutionArchive object
+	// This will allow us to quickly find the NodeSolutionArchive object by its Name and Version
+	nsaNameVersion := func(rawObj client.Object) []string {
+		versionedNamed := utils.GetNodeSolutionArchiveVersionedName(
+			rawObj.(*nsav1alpha1.NodeSolutionArchive).Spec.Name,
+			rawObj.(*nsav1alpha1.NodeSolutionArchive).Spec.Version,
+		)
+		return []string{versionedNamed}
+	}
+	err = k8sManager.GetFieldIndexer().IndexField(
+		context.Background(),
+		&nsav1alpha1.NodeSolutionArchive{},
+		"NodeSolutionArchiveNameVersion",
+		nsaNameVersion,
+	)
+	Expect(err).ToNot(HaveOccurred())
+
+	// Use the manager's client which has the field index
+	k8sClient = k8sManager.GetClient()
 	Expect(k8sClient).NotTo(BeNil())
+
+	go func() {
+		defer GinkgoRecover()
+		err = k8sManager.Start(ctx)
+		Expect(err).ToNot(HaveOccurred(), "failed to run manager")
+	}()
+
+	// Wait for the manager (and its cache) to start
+	time.Sleep(1 * time.Second)
 })
 
 var _ = AfterSuite(func() {
