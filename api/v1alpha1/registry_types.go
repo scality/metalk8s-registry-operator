@@ -21,6 +21,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 )
 
 type ImageSpec struct {
@@ -162,4 +163,37 @@ type RegistryList struct {
 
 func init() {
 	SchemeBuilder.Register(&Registry{}, &RegistryList{})
+}
+
+func (registry *Registry) InitStatus() {
+	if registry.Status.Available == nil {
+		registry.Status.Available = ptr.To(false)
+	}
+	if registry.Status.Ready == nil {
+		registry.Status.Ready = ptr.To(false)
+	}
+	if registry.Status.ServerAvailable == nil {
+		registry.Status.ServerAvailable = ptr.To(false)
+	}
+	if registry.Status.ServerReady == nil {
+		registry.Status.ServerReady = ptr.To(false)
+	}
+	if registry.Status.AgentAvailable == nil {
+		registry.Status.AgentAvailable = ptr.To(false)
+	}
+	if registry.Status.AgentReady == nil {
+		registry.Status.AgentReady = ptr.To(false)
+	}
+	if registry.Status.Replicas == nil {
+		registry.Status.Replicas = ptr.To(0)
+	}
+	if registry.Status.ReadyServerReplicas == nil {
+		registry.Status.ReadyServerReplicas = ptr.To(0)
+	}
+	if registry.Status.ReadyAgentReplicas == nil {
+		registry.Status.ReadyAgentReplicas = ptr.To(0)
+	}
+	if registry.Status.SelectedNodes == nil {
+		registry.Status.SelectedNodes = []string{}
+	}
 }
