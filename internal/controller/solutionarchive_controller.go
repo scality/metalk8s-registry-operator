@@ -23,6 +23,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -79,6 +80,7 @@ func (r *SolutionArchiveReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 	if len(registryList.Items) != 1 {
 		log.Info("exactly one Registry object is required", "found", len(registryList.Items))
+		solutionArchive.ResetStatus()
 		// When deleting registry resource, we need to delete all NodeSolutionArchive objects
 		err := r.deleteUnexpectedNodeSolutionArchives(ctx, solutionArchive, []string{})
 		return ctrl.Result{}, err
@@ -91,10 +93,14 @@ func (r *SolutionArchiveReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	targetReplicas := len(registry.Status.SelectedNodes)
 	if targetReplicas == 0 {
 		log.Info("no nodes defined from the Registry")
+		solutionArchive.ResetStatus()
 		// When unlabeling all nodes, we need to delete all NodeSolutionArchive objects
 		err := r.deleteUnexpectedNodeSolutionArchives(ctx, solutionArchive, []string{})
 		return ctrl.Result{}, err
 	}
+
+	// Update the status with the targeted number of replicas
+	solutionArchive.Status.TargetReplicas = ptr.To(targetReplicas)
 
 	// When unlabeling some nodes, we need to delete previously created NodeSolutionArchive objects
 	err := r.deleteUnexpectedNodeSolutionArchives(ctx, solutionArchive, registry.Status.SelectedNodes)
@@ -103,6 +109,7 @@ func (r *SolutionArchiveReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 
 	log.V(1).Info("generating NodeSolutionArchive objects for all nodes", "nodes", registry.Status.SelectedNodes)
+	nodeSolutionArchives := []string{}
 	for _, node := range registry.Status.SelectedNodes {
 		nsaName := fmt.Sprintf("%s-%s-%s", solutionArchive.Spec.Name, solutionArchive.Spec.Version, node)
 		// Kubernetes does not accept names longer than 253 characters, so we truncate the name and add a hash
@@ -140,11 +147,39 @@ func (r *SolutionArchiveReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		if err != nil {
 			return ctrl.Result{}, err
 		}
+		nodeSolutionArchives = append(nodeSolutionArchives, nsaName)
+		solutionArchive.Status.NodeSolutionArchives = nodeSolutionArchives
 	}
+
+	// Update the status of the SolutionArchive
+	nodeSolutionArchiveVersionName := utils.GetNodeSolutionArchiveVersionedName(
+		solutionArchive.Spec.Name,
+		solutionArchive.Spec.Version,
+	)
+	nodeSolutionArchiveList := nsav1alpha1.NodeSolutionArchiveList{}
+	if err := r.List(ctx, &nodeSolutionArchiveList, client.MatchingFields{"NodeSolutionArchiveNameVersion": nodeSolutionArchiveVersionName}); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	replicated := 0
+	for _, nodeSolutionArchive := range nodeSolutionArchiveList.Items {
+		if nodeSolutionArchive.Status.Served != nil && *nodeSolutionArchive.Status.Served {
+			replicated++
+		}
+	}
+	solutionArchive.Status.ServedReplicas = ptr.To(replicated)
+	solutionArchive.Status.Served = ptr.To(replicated > 0)
+	solutionArchive.Status.Replicated = ptr.To(replicated == targetReplicas)
+
 	return ctrl.Result{}, nil
 }
 
 func (r *SolutionArchiveReconciler) deleteUnexpectedNodeSolutionArchives(ctx context.Context, solutionArchive *metalk8sv1alpha1.SolutionArchive, selectedNodes []string) error {
+	/*
+		Retrieve the list of existing NodeSolutionArchive objects
+		For all NodeSolutionArchives in the list, check if the NodeName is in the list of selectedNodes
+		If not, delete the NodeSolutionArchive object
+	*/
 	nodeSolutionArchiveVersionName := utils.GetNodeSolutionArchiveVersionedName(
 		solutionArchive.Spec.Name,
 		solutionArchive.Spec.Version,

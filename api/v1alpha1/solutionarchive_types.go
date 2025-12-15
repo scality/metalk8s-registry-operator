@@ -94,3 +94,11 @@ func (solutionArchive *SolutionArchive) InitStatus() {
 		solutionArchive.Status.NodeSolutionArchives = []string{}
 	}
 }
+
+func (solutionArchive *SolutionArchive) ResetStatus() {
+	solutionArchive.Status.Served = ptr.To(false)
+	solutionArchive.Status.Replicated = ptr.To(false)
+	solutionArchive.Status.ServedReplicas = ptr.To(0)
+	solutionArchive.Status.TargetReplicas = ptr.To(0)
+	solutionArchive.Status.NodeSolutionArchives = []string{}
+}
