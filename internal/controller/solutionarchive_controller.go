@@ -22,10 +22,13 @@ import (
 	"slices"
 
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	nsav1alpha1 "github.com/scality/metalk8s-registry-node-agent/api/v1alpha1"
 	metalk8sv1alpha1 "github.com/scality/metalk8s-registry-operator/api/v1alpha1"
@@ -161,11 +164,35 @@ func (r *SolutionArchiveReconciler) deleteUnexpectedNodeSolutionArchives(ctx con
 	return nil
 }
 
+// allSolutionArchives enqueue a reconcile for all SolutionArchive objects.
+func allSolutionArchives(c client.Client) func(ctx context.Context, obj client.Object) []reconcile.Request {
+	return func(ctx context.Context, obj client.Object) []reconcile.Request {
+		var result []reconcile.Request
+
+		solutionArchiveList := &metalk8sv1alpha1.SolutionArchiveList{}
+		if err := c.List(ctx, solutionArchiveList); err != nil {
+			return result
+		}
+
+		for _, solutionArchive := range solutionArchiveList.Items {
+			result = append(result, reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name: solutionArchive.Name,
+				},
+			})
+		}
+		return result
+	}
+}
+
 // SetupWithManager sets up the controller with the Manager.
 func (r *SolutionArchiveReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&metalk8sv1alpha1.SolutionArchive{}).
 		Owns(&nsav1alpha1.NodeSolutionArchive{}).
+		Watches(&metalk8sv1alpha1.Registry{},
+			handler.EnqueueRequestsFromMapFunc(allSolutionArchives(r.Client)),
+		).
 		Named("solutionarchive").
 		Complete(r)
 }
