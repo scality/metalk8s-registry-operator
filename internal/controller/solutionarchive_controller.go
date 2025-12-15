@@ -111,6 +111,10 @@ func (r *SolutionArchiveReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 				},
 				NodeName: node,
 			}
+			if err := ctrl.SetControllerReference(solutionArchive, nodeSolutionArchive, r.Scheme); err != nil {
+				return err
+			}
+
 			return nil
 		})
 
@@ -125,6 +129,7 @@ func (r *SolutionArchiveReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 func (r *SolutionArchiveReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&metalk8sv1alpha1.SolutionArchive{}).
+		Owns(&nsav1alpha1.NodeSolutionArchive{}).
 		Named("solutionarchive").
 		Complete(r)
 }
