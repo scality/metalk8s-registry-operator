@@ -55,6 +55,9 @@ func (r *RegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	// Apply defaults
+	registry.WithDefaults()
+
 	// Ensure we update the status in case of early return
 	original := registry.DeepCopy()
 	registry.InitStatus()
