@@ -17,31 +17,131 @@ limitations under the License.
 package v1alpha1
 
 import (
+	cmmetav1 "github.com/cert-manager/cert-manager/pkg/apis/meta/v1"
+
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
+type ImageSpec struct {
+	// Registry URL.
+	Registry string `json:"registry"`
+	// Name of the image.
+	Name string `json:"name"`
+	// Tag of the image, default to latest.
+	// +kubebuilder:validation:Optional
+	Tag *string `json:"tag,omitempty"`
+	// PullPolicy of the image.
+	// +kubebuilder:validation:Optional
+	PullPolicy *corev1.PullPolicy `json:"pullPolicy,omitempty"`
+	// PullSecrets is an optional list of references to secrets
+	// to use for pulling the image.
+	// +kubebuilder:validation:Optional
+	PullSecrets []corev1.LocalObjectReference `json:"pullSecrets,omitempty"`
+}
+
+type RegistryServerSpec struct {
+	// CertificateIssuerRef is a reference to the cert-manager Issuer or ClusterIssuer
+	// that will generate the Certificate used by the registry server on its API endpoint.
+	CertificateIssuerRef cmmetav1.ObjectReference `json:"certificateIssuerRef"`
+	// Image is the specification of the registry server image.
+	// +kubebuilder:validation:Optional
+	Image *ImageSpec `json:"image,omitempty"`
+}
+
+type AuthenticationSpec struct {
+	// mTLS authentication mechanism.
+	MTLS MTLSAuthenticationSpec `json:"mtls"`
+}
+
+type MTLSAuthenticationSpec struct {
+	// CASecretRef is a reference to the secret containing the CA certificate
+	// used to generate the certificates used for mTLS authentication.
+	CASecretRef corev1.SecretReference `json:"caSecretRef"`
+}
+
+type RegistryNodeAgentSpec struct {
+	// CertificateIssuerRef is a reference to the cert-manager Issuer or ClusterIssuer
+	// that will generate the Certificate used by the registry node agent on its upload API endpoint.
+	CertificateIssuerRef cmmetav1.ObjectReference `json:"certificateIssuerRef"`
+	// Authentication is the specification of the registry node agent authentication mechanism
+	// used to allow SolutionArchive distribution between registry node agents.
+	Authentication AuthenticationSpec `json:"authentication"`
+	// Image is the specification of the registry node agent image.
+	// +kubebuilder:validation:Optional
+	Image *ImageSpec `json:"image,omitempty"`
+}
 
 // RegistrySpec defines the desired state of Registry.
 type RegistrySpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	// Namespace where the registry resources are deployed, defaults to "metalk8s-registry-system".
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
+	// +kubebuilder:validation:Optional
+	Namespace *string `json:"namespace,omitempty"`
+	// NodeSelector is a selector which must be true for the registry to fit on a node.
+	// Selector which must match a node's labels for the registry to be scheduled on that node.
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
+	// +mapType=atomic
+	NodeSelector map[string]string `json:"nodeSelector"`
+	// Server is the specification of the registry server.
+	Server RegistryServerSpec `json:"server"`
+	// Agent is the specification of the registry node agent.
+	Agent RegistryNodeAgentSpec `json:"agent"`
+}
 
-	// Foo is an example field of Registry. Edit registry_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
+type ProcessStatus struct {
+	// Availability of the process on the related node.
+	Available bool `json:"available"`
+	// Readiness of the process on the related node.
+	Ready bool `json:"ready"`
+}
+
+type NodeStatus struct {
+	// Status of the registry server on the related node.
+	Server ProcessStatus `json:"server"`
+	// Status of the registry node agent on the related node.
+	Agent ProcessStatus `json:"agent"`
 }
 
 // RegistryStatus defines the observed state of Registry.
 type RegistryStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	// Availability of the registry.
+	Available *bool `json:"available,omitempty"`
+	// Readiness of the registry.
+	Ready *bool `json:"ready,omitempty"`
+	// Availability of the registry server.
+	ServerAvailable *bool `json:"serverAvailable,omitempty"`
+	// Readiness of the registry server.
+	ServerReady *bool `json:"serverReady,omitempty"`
+	// Availability of the registry node agent.
+	AgentAvailable *bool `json:"agentAvailable,omitempty"`
+	// Readiness of the registry node agent.
+	AgentReady *bool `json:"agentReady,omitempty"`
+	// Number of replicas for NodeAgent and RegistryServer.
+	Replicas *int `json:"replicas,omitempty"`
+	// Number of ready replicas for RegistryServer.
+	ReadyServerReplicas *int `json:"readyServerReplicas,omitempty"`
+	// Number of ready replicas for RegistryNodeAgent.
+	ReadyAgentReplicas *int `json:"readyAgentReplicas,omitempty"`
+	// Selected nodes for the registry, based on NodeSelector.
+	SelectedNodes []string `json:"selectedNodes,omitempty"`
+	// Status per node for the registry,
+	// including availability and readiness of the registry server and node agent.
+	StatusPerNode map[string]NodeStatus `json:"statusPerNode,omitempty"`
+	// Conditions of the registry.
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Cluster
 
+// +kubebuilder:printcolumn:name="Available",type="boolean",JSONPath=".status.available",priority=1
+// +kubebuilder:printcolumn:name="Ready",type="boolean",JSONPath=".status.ready"
+// +kubebuilder:printcolumn:name="Replicas",type="integer",JSONPath=".status.replicas"
+// +kubebuilder:printcolumn:name="Server Replicas",type="integer",JSONPath=".status.readyServerReplicas",priority=1
+// +kubebuilder:printcolumn:name="Agent Replicas",type="integer",JSONPath=".status.readyAgentReplicas",priority=1
+// +kubebuilder:printcolumn:name="Selected Nodes",type="string",JSONPath=".status.selectedNodes",priority=1
 // Registry is the Schema for the registries API.
 type Registry struct {
 	metav1.TypeMeta   `json:",inline"`
