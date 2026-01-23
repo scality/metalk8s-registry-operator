@@ -1,0 +1,14 @@
+apiVersion: metalk8s.scality.com/v1alpha1
+kind: SolutionArchive
+metadata:
+  labels:
+    app.kubernetes.io/name: metalk8s-registry-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: solutionarchive-sample
+spec:
+  name: my-new-solution
+  version: "1.2.0"
+  validation:
+    checksum:
+      type: sha256
+      value: "123abc"
