@@ -31,12 +31,14 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	metalk8sv1alpha1 "github.com/scality/metalk8s-registry-operator/api/v1alpha1"
+	"github.com/scality/metalk8s-registry-operator/internal/utils"
 )
 
 // RegistryReconciler reconciles a Registry object
 type RegistryReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
+	RNA    *utils.RegistryNodeAgent
 }
 
 // +kubebuilder:rbac:groups=metalk8s.scality.com,resources=registries,verbs=get;list;watch;create;update;patch;delete

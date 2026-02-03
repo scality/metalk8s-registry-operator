@@ -22,6 +22,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -50,6 +51,10 @@ import (
 var (
 	scheme   = runtime.NewScheme()
 	setupLog = ctrl.Log.WithName("setup")
+)
+
+const (
+	timeoutDurationInSecond = 5
 )
 
 func init() {
@@ -97,6 +102,11 @@ func main() {
 		zap.UseFlagOptions(&opts),
 		zap.StacktraceLevel(zapcore.PanicLevel),
 	))
+
+	// Initialize the base context of the application.
+	// Every dependency will be able to use this context.
+	ctx, cancel := context.WithTimeout(context.Background(), timeoutDurationInSecond*time.Second)
+	defer cancel()
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will
@@ -211,6 +221,14 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Load registry-node-agent manifests and store in a struct
+	registryNodeAgent := utils.NewRegistryNodeAgent(ctx)
+	err = registryNodeAgent.LoadManifestsFromFile("../dist/registry-node-agent.yaml")
+	if err != nil {
+		setupLog.Error(err, "failed to load registry-node-agent manifests")
+		os.Exit(1)
+	}
+
 	if err := (&controller.SolutionArchiveReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
@@ -221,6 +239,7 @@ func main() {
 	if err := (&controller.RegistryReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
+		RNA:    registryNodeAgent,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Registry")
 		os.Exit(1)
