@@ -30,12 +30,14 @@ const (
 	RNA_CA_NAME                            = "metalk8s-registry-node-agent-ca"
 	RNA_CA_SECRET_NAME                     = "rna-ca-cert"
 	RNA_CA_ISSUER_NAME                     = "metalk8s-registry-node-agent-ca-issuer"
+	RNA_CA_ISSUER_KIND                     = "Issuer"
 	RNA_SELFSIGNED_ISSUER_NAME             = "metalk8s-registry-node-agent-selfsigned-issuer"
 	RNA_SELFSIGNED_ISSUER_KIND             = "Issuer"
 	RNA_STATEFULSET_PREFIX                 = "metalk8s-registry-node-agent"
 	RNA_INTERNAL_SERVER_CERTIFICATE_PREFIX = "rna-internal-server"
 	RNA_INTERNAL_SERVER_CERTIFICATE_CN     = "rna-internal-server"
 	RNA_EXTERNAL_SERVER_CERTIFICATE_PREFIX = "rna-external-server"
+	RNA_EXTERNAL_SERVER_CERTIFICATE_CN     = "rna-external-server"
 	RNA_INTERNAL_CLIENT_CERTIFICATE_PREFIX = "rna-internal-client"
 	RNA_EXTERNAL_CLIENT_CERTIFICATE_PREFIX = "rna-external-client"
 	TLS_CLIENT_INTERNAL_CERTS_NAME         = "tls-client-intern-certs"
@@ -482,6 +484,117 @@ func (r *RegistryReconciler) ReconcileRNAService(ctx context.Context, registryNa
 		}
 		registryNodeAgentService.Spec.Type = corev1.ServiceTypeClusterIP
 
+		return nil
+	})
+	return err
+}
+
+// ReconcileRNAInternalServerCertificate reconciles an internal server certificate for the Registry Node Agent
+func (r *RegistryReconciler) ReconcileRNAInternalServerCertificate(ctx context.Context, registryNamespace string, nodeName string, registry *metalk8sv1alpha1.Registry) error {
+	registryNodeAgentServerCertificate := &cmv1.Certificate{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("%s-%s", RNA_INTERNAL_SERVER_CERTIFICATE_PREFIX, nodeName),
+			Namespace: registryNamespace,
+		},
+	}
+
+	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, registryNodeAgentServerCertificate, func() error {
+		registryNodeAgentServerCertificate.SetLabels(map[string]string{
+			RNA_APP_LABEL_KEY: RNA_APP_LABEL_VALUE,
+			"node":            nodeName,
+		})
+		err := controllerutil.SetControllerReference(registry, registryNodeAgentServerCertificate, r.Scheme)
+		if err != nil {
+			return err
+		}
+		registryNodeAgentServerCertificate.Spec.SecretName = fmt.Sprintf("%s-%s", RNA_INTERNAL_SERVER_CERTIFICATE_PREFIX, nodeName)
+		registryNodeAgentServerCertificate.Spec.IssuerRef = cmmetav1.IssuerReference{
+			Name: RNA_CA_ISSUER_NAME,
+			Kind: RNA_CA_ISSUER_KIND,
+		}
+		registryNodeAgentServerCertificate.Spec.CommonName = fmt.Sprintf("%s-%s", RNA_INTERNAL_SERVER_CERTIFICATE_CN, nodeName)
+		registryNodeAgentServerCertificate.Spec.DNSNames = []string{
+			fmt.Sprintf("%s-%s", RNA_INTERNAL_SERVER_CERTIFICATE_CN, nodeName),
+			fmt.Sprintf("%s-%s.%s", RNA_INTERNAL_SERVER_CERTIFICATE_CN, nodeName, registryNamespace),
+			fmt.Sprintf("%s-%s.%s.svc", RNA_INTERNAL_SERVER_CERTIFICATE_CN, nodeName, registryNamespace),
+			fmt.Sprintf("%s-%s.%s.svc.cluster.local", RNA_INTERNAL_SERVER_CERTIFICATE_CN, nodeName, registryNamespace),
+		}
+		registryNodeAgentServerCertificate.Spec.Usages = []cmv1.KeyUsage{
+			cmv1.UsageKeyEncipherment,
+			cmv1.UsageDigitalSignature,
+			cmv1.UsageServerAuth,
+		}
+		return nil
+	})
+	return err
+}
+
+// ReconcileRNAExternalServerCertificate reconciles an external server certificate for the Registry Node Agent
+func (r *RegistryReconciler) ReconcileRNAExternalServerCertificate(ctx context.Context, registryNamespace string, nodeName string, nodeIP string, registry *metalk8sv1alpha1.Registry) error {
+	registryNodeAgentServerCertificate := &cmv1.Certificate{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("%s-%s", RNA_EXTERNAL_SERVER_CERTIFICATE_PREFIX, nodeName),
+			Namespace: registryNamespace,
+		},
+	}
+
+	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, registryNodeAgentServerCertificate, func() error {
+		registryNodeAgentServerCertificate.SetLabels(map[string]string{
+			RNA_APP_LABEL_KEY: RNA_APP_LABEL_VALUE,
+			"node":            nodeName,
+		})
+		err := controllerutil.SetControllerReference(registry, registryNodeAgentServerCertificate, r.Scheme)
+		if err != nil {
+			return err
+		}
+		registryNodeAgentServerCertificate.Spec.SecretName = fmt.Sprintf("%s-%s", RNA_EXTERNAL_SERVER_CERTIFICATE_PREFIX, nodeName)
+		registryNodeAgentServerCertificate.Spec.IssuerRef = cmmetav1.IssuerReference{
+			Name: registry.Spec.Agent.CertificateIssuerRef.Name,
+			Kind: registry.Spec.Agent.CertificateIssuerRef.Kind,
+		}
+		registryNodeAgentServerCertificate.Spec.CommonName = fmt.Sprintf("%s-%s", RNA_EXTERNAL_SERVER_CERTIFICATE_CN, nodeName)
+		registryNodeAgentServerCertificate.Spec.IPAddresses = []string{
+			nodeIP,
+		}
+		registryNodeAgentServerCertificate.Spec.Usages = []cmv1.KeyUsage{
+			cmv1.UsageKeyEncipherment,
+			cmv1.UsageDigitalSignature,
+			cmv1.UsageServerAuth,
+		}
+		return nil
+	})
+	return err
+}
+
+// ReconcileRNAClientCertificate reconciles a client certificate for the Registry Node Agent
+func (r *RegistryReconciler) ReconcileRNAClientCertificate(ctx context.Context, registryNamespace string, nodeName string, registry *metalk8sv1alpha1.Registry) error {
+	registryNodeAgentCertificate := &cmv1.Certificate{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("%s-%s", RNA_INTERNAL_CLIENT_CERTIFICATE_PREFIX, nodeName),
+			Namespace: registryNamespace,
+		},
+	}
+	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, registryNodeAgentCertificate, func() error {
+		registryNodeAgentCertificate.SetLabels(map[string]string{
+			RNA_APP_LABEL_KEY: RNA_APP_LABEL_VALUE,
+			"node":            nodeName,
+		})
+		err := controllerutil.SetControllerReference(registry, registryNodeAgentCertificate, r.Scheme)
+		if err != nil {
+			return err
+		}
+		registryNodeAgentCertificate.Spec.SecretName = fmt.Sprintf("%s-%s", RNA_INTERNAL_CLIENT_CERTIFICATE_PREFIX, nodeName)
+		registryNodeAgentCertificate.Spec.IssuerRef = cmmetav1.IssuerReference{
+			Group: "cert-manager.io",
+			Kind:  RNA_CA_ISSUER_KIND,
+			Name:  RNA_CA_ISSUER_NAME,
+		}
+		registryNodeAgentCertificate.Spec.CommonName = fmt.Sprintf("%s-%s", RNA_INTERNAL_CLIENT_CERTIFICATE_PREFIX, nodeName)
+		registryNodeAgentCertificate.Spec.Usages = []cmv1.KeyUsage{
+			cmv1.UsageKeyEncipherment,
+			cmv1.UsageDigitalSignature,
+			cmv1.UsageClientAuth,
+		}
 		return nil
 	})
 	return err

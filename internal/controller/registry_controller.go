@@ -133,6 +133,15 @@ func (r *RegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	// 5. Update the status.SelectedNodes with the list of matching nodes and deploy node-specific resources
 	for _, node := range matchingNodes.Items {
+		// Determine NodeIP
+		nodeIP := ""
+		for _, address := range node.Status.Addresses {
+			if address.Type == corev1.NodeInternalIP {
+				nodeIP = address.Address
+				break
+			}
+		}
+		// Update the field "SelectedNodes" in registry Status
 		registry.Status.SelectedNodes = append(registry.Status.SelectedNodes, node.Name)
 		err := r.ReconcileRNAStatefulSet(ctx, *registry.Spec.Namespace, node.Name, registry)
 		if err != nil {
@@ -141,6 +150,18 @@ func (r *RegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		err = r.ReconcileRNAService(ctx, *registry.Spec.Namespace, node.Name, registry)
 		if err != nil {
 			return ctrl.Result{}, fmt.Errorf("error deploying Registry Node Agent service for node %s: %w", node.Name, err)
+		}
+		err = r.ReconcileRNAExternalServerCertificate(ctx, *registry.Spec.Namespace, node.Name, nodeIP, registry)
+		if err != nil {
+			return ctrl.Result{}, fmt.Errorf("error deploying Registry Node Agent external server certificate for node %s: %w", node.Name, err)
+		}
+		err = r.ReconcileRNAInternalServerCertificate(ctx, *registry.Spec.Namespace, node.Name, registry)
+		if err != nil {
+			return ctrl.Result{}, fmt.Errorf("error deploying Registry Node Agent internal server certificate for node %s: %w", node.Name, err)
+		}
+		err = r.ReconcileRNAClientCertificate(ctx, *registry.Spec.Namespace, node.Name, registry)
+		if err != nil {
+			return ctrl.Result{}, fmt.Errorf("error deploying Registry Node Agent client certificate for node %s: %w", node.Name, err)
 		}
 	}
 
