@@ -69,7 +69,10 @@ func (r *RegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 	}()
 
-	// 2. List all nodes matching the nodeSelector
+	// 2. Change Namespace into Registry-Node-Agent manifest
+	r.ChangeNamespace(ctx, *registry.Spec.Namespace)
+
+	// 3. List all nodes matching the nodeSelector
 	matchingNodes := &corev1.NodeList{}
 	err := r.List(ctx, matchingNodes, client.MatchingLabels(registry.Spec.NodeSelector))
 	if err != nil {
@@ -84,7 +87,7 @@ func (r *RegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, nil
 	}
 
-	// 3. Update the status.SelectedNodes with the list of matching nodes
+	// 4. Update the status.SelectedNodes with the list of matching nodes
 	for _, node := range matchingNodes.Items {
 		registry.Status.SelectedNodes = append(registry.Status.SelectedNodes, node.Name)
 	}
