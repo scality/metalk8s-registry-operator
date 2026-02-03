@@ -34,8 +34,14 @@ import (
 	metalk8sv1alpha1 "github.com/scality/metalk8s-registry-operator/api/v1alpha1"
 	"github.com/scality/metalk8s-registry-operator/internal/utils"
 	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+)
+
+const (
+	RNA_APP_LABEL_KEY   = "app.kubernetes.io/name"
+	RNA_APP_LABEL_VALUE = "metalk8s-registry-node-agent"
 )
 
 // RegistryReconciler reconciles a Registry object
@@ -59,6 +65,7 @@ type RegistryReconciler struct {
 // +kubebuilder:rbac:groups=core,resources=serviceaccounts,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=apps,resources=statefulsets,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=cert-manager.io,resources=issuers,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
@@ -124,9 +131,13 @@ func (r *RegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, nil
 	}
 
-	// 5. Update the status.SelectedNodes with the list of matching nodes
+	// 5. Update the status.SelectedNodes with the list of matching nodes and deploy node-specific resources
 	for _, node := range matchingNodes.Items {
 		registry.Status.SelectedNodes = append(registry.Status.SelectedNodes, node.Name)
+		err := r.ReconcileRNAStatefulSet(ctx, *registry.Spec.Namespace, node.Name, registry)
+		if err != nil {
+			return ctrl.Result{}, fmt.Errorf("error deploying Registry Node Agent StatefulSet for node %s: %w", node.Name, err)
+		}
 	}
 
 	return ctrl.Result{}, nil
@@ -181,6 +192,7 @@ func isIncluded(subset, superset map[string]string) bool {
 func (r *RegistryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&metalk8sv1alpha1.Registry{}).
+		Owns(&appsv1.StatefulSet{}).
 		Owns(&corev1.Service{}).
 		Owns(&corev1.ServiceAccount{}).
 		Owns(&admissionregistrationv1.ValidatingWebhookConfiguration{}).

@@ -84,6 +84,18 @@ type RegistryNodeAgentSpec struct {
 
 // RegistrySpec defines the desired state of Registry.
 type RegistrySpec struct {
+	// Log level for Registry Node Agent and Registry Server, defaults to "info"
+	// +kubebuilder:default=info
+	// +kubebuilder:validation:Optional
+	LogLevel *string `json:"logLevel,omitempty"`
+	// HostPath where to store ISO files, defaults to "/srv/scality/metalk8s/archives"
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
+	ArchivesPath *string `json:"archivesPath,omitempty"`
+	// HostPath where to mount ISO files, defaults to "/srv/scality/metalk8s/solutions"
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
+	SolutionsPath *string `json:"solutionsPath,omitempty"`
 	// Namespace where the registry resources are deployed, defaults to "metalk8s-registry-system".
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
 	// +kubebuilder:validation:Optional
@@ -229,4 +241,12 @@ func (registry *Registry) WithDefaults() {
 	if registry.Spec.Server.Image.Tag == nil {
 		registry.Spec.Server.Image.Tag = ptr.To("latest")
 	}
+}
+
+func (is *ImageSpec) GetImage() string {
+	registryImageName := ""
+	if is.Registry != "" {
+		registryImageName = is.Registry + "/"
+	}
+	return registryImageName + is.Name + ":" + *is.Tag
 }
