@@ -58,6 +58,7 @@ type RegistryReconciler struct {
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterrolebindings,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=serviceaccounts,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=cert-manager.io,resources=issuers,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
@@ -101,6 +102,11 @@ func (r *RegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	err = r.ReconcileRNACAIssuer(ctx, *registry.Spec.Namespace, registry)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("error deploying Registry Node Agent CA issuer: %w", err)
+	}
+
+	err = r.ReconcileRNAExternalClientCACertificate(ctx, *registry.Spec.Namespace, registry)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("error deploying Registry Node Agent external client CA certificate: %w", err)
 	}
 
 	// 4. List all nodes matching the nodeSelector
@@ -180,6 +186,7 @@ func (r *RegistryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&admissionregistrationv1.ValidatingWebhookConfiguration{}).
 		Owns(&cmv1.Certificate{}).
 		Owns(&cmv1.Issuer{}).
+		Owns(&corev1.Secret{}).
 		Owns(&rbacv1.Role{}).
 		Owns(&rbacv1.ClusterRole{}).
 		Owns(&rbacv1.RoleBinding{}).

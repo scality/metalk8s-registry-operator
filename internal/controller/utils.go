@@ -13,6 +13,7 @@ import (
 	metalk8sv1alpha1 "github.com/scality/metalk8s-registry-operator/api/v1alpha1"
 	"github.com/scality/metalk8s-registry-operator/internal/utils"
 	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
+	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -21,14 +22,15 @@ import (
 )
 
 const (
-	ORGANIZATION_NAME          = "metalk8s"
-	SSA_FIELD_OWNER_NAME       = "registry-operator"
-	RNA_CA_NAME                = "metalk8s-registry-node-agent-ca"
-	RNA_CA_SECRET_NAME         = "rna-ca-cert"
-	RNA_CA_ISSUER_NAME         = "metalk8s-registry-node-agent-ca-issuer"
-	RNA_SELFSIGNED_ISSUER_NAME = "metalk8s-registry-node-agent-selfsigned-issuer"
-	RNA_SELFSIGNED_ISSUER_KIND = "Issuer"
-	RNA_DEFAULT_NAMESPACE      = "metalk8s-registry"
+	ORGANIZATION_NAME                      = "metalk8s"
+	SSA_FIELD_OWNER_NAME                   = "registry-operator"
+	RNA_CA_NAME                            = "metalk8s-registry-node-agent-ca"
+	RNA_CA_SECRET_NAME                     = "rna-ca-cert"
+	RNA_CA_ISSUER_NAME                     = "metalk8s-registry-node-agent-ca-issuer"
+	RNA_SELFSIGNED_ISSUER_NAME             = "metalk8s-registry-node-agent-selfsigned-issuer"
+	RNA_SELFSIGNED_ISSUER_KIND             = "Issuer"
+	RNA_EXTERNAL_CLIENT_CERTIFICATE_PREFIX = "rna-external-client"
+	RNA_DEFAULT_NAMESPACE                  = "metalk8s-registry"
 )
 
 // getHash32Name returns a 32-bit hash of the input string - hexadecimal representation
@@ -246,6 +248,37 @@ func (r *RegistryReconciler) ReconcileRNACAIssuer(ctx context.Context, registryN
 			CA: &cmv1.CAIssuer{
 				SecretName: RNA_CA_SECRET_NAME,
 			},
+		}
+		return nil
+	})
+	return err
+}
+
+// ReconcileRNAExternalClientCACertificate reconciles a namespaced copy of the CA certificate defined in the Registry (spec.agent.authentication.mtls.caSecretRef)
+// It is used to sign the mTLS Certificate used to upload ISO files
+func (r *RegistryReconciler) ReconcileRNAExternalClientCACertificate(ctx context.Context, registryNamespace string, registry *metalk8sv1alpha1.Registry) error {
+	caSecretRef := &corev1.Secret{}
+	if err := r.Get(ctx, client.ObjectKey{
+		Name:      registry.Spec.Agent.Authentication.MTLS.CASecretRef.Name,
+		Namespace: registry.Spec.Agent.Authentication.MTLS.CASecretRef.Namespace,
+	}, caSecretRef); err != nil {
+		return err
+	}
+
+	externalClientCASecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      RNA_EXTERNAL_CLIENT_CERTIFICATE_PREFIX,
+			Namespace: registryNamespace,
+		},
+	}
+
+	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, externalClientCASecret, func() error {
+		err := controllerutil.SetControllerReference(registry, externalClientCASecret, r.Scheme)
+		if err != nil {
+			return err
+		}
+		externalClientCASecret.Data = map[string][]byte{
+			"ca.crt": caSecretRef.Data["ca.crt"],
 		}
 		return nil
 	})
