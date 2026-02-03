@@ -6,19 +6,28 @@ import (
 
 	"context"
 	"strings"
+	"time"
 
+	cmv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
+	cmmetav1 "github.com/cert-manager/cert-manager/pkg/apis/meta/v1"
 	metalk8sv1alpha1 "github.com/scality/metalk8s-registry-operator/api/v1alpha1"
 	"github.com/scality/metalk8s-registry-operator/internal/utils"
 	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 const (
-	SSA_FIELD_OWNER_NAME  = "registry-operator"
-	RNA_DEFAULT_NAMESPACE = "metalk8s-registry"
+	ORGANIZATION_NAME          = "metalk8s"
+	SSA_FIELD_OWNER_NAME       = "registry-operator"
+	RNA_CA_NAME                = "metalk8s-registry-node-agent-ca"
+	RNA_CA_SECRET_NAME         = "rna-ca-cert"
+	RNA_SELFSIGNED_ISSUER_NAME = "metalk8s-registry-node-agent-selfsigned-issuer"
+	RNA_SELFSIGNED_ISSUER_KIND = "Issuer"
+	RNA_DEFAULT_NAMESPACE      = "metalk8s-registry"
 )
 
 // getHash32Name returns a 32-bit hash of the input string - hexadecimal representation
@@ -180,6 +189,42 @@ func (r *RegistryReconciler) ReconcileRNAGenericResources(ctx context.Context, r
 	}
 
 	return nil
+}
+
+// ReconcileRNACACertificate reconciles a 1-year self-signed CA certificate to sign TLS Certificate for internal server
+func (r *RegistryReconciler) ReconcileRNACACertificate(ctx context.Context, registryNamespace string, registry *metalk8sv1alpha1.Registry) error {
+	registryNodeAgentCACertificate := &cmv1.Certificate{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      RNA_CA_NAME,
+			Namespace: registryNamespace,
+		},
+	}
+
+	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, registryNodeAgentCACertificate, func() error {
+		err := controllerutil.SetControllerReference(registry, registryNodeAgentCACertificate, r.Scheme)
+		if err != nil {
+			return err
+		}
+		registryNodeAgentCACertificate.Spec.IsCA = true
+		registryNodeAgentCACertificate.Spec.SecretName = RNA_CA_SECRET_NAME
+		registryNodeAgentCACertificate.Spec.IssuerRef = cmmetav1.IssuerReference{
+			Name: RNA_SELFSIGNED_ISSUER_NAME,
+			Kind: RNA_SELFSIGNED_ISSUER_KIND,
+		}
+		registryNodeAgentCACertificate.Spec.Subject = &cmv1.X509Subject{
+			Organizations: []string{ORGANIZATION_NAME},
+		}
+		registryNodeAgentCACertificate.Spec.CommonName = RNA_CA_NAME
+		registryNodeAgentCACertificate.Spec.Duration = &metav1.Duration{Duration: 365 * 24 * time.Hour}
+		registryNodeAgentCACertificate.Spec.Usages = []cmv1.KeyUsage{
+			cmv1.UsageCertSign,
+			cmv1.UsageCRLSign,
+			cmv1.UsageDigitalSignature,
+		}
+		return nil
+	})
+
+	return err
 }
 
 // ChangeNamespace changes the namespace of the Registry Node Agent manifests

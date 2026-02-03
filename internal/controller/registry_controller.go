@@ -92,6 +92,11 @@ func (r *RegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, fmt.Errorf("error reconciling Registry Node Agent generic resources: %w", err)
 	}
 
+	err = r.ReconcileRNACACertificate(ctx, *registry.Spec.Namespace, registry)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("error deploying Registry Node Agent CA certificate: %w", err)
+	}
+
 	// 4. List all nodes matching the nodeSelector
 	matchingNodes := &corev1.NodeList{}
 	err = r.List(ctx, matchingNodes, client.MatchingLabels(registry.Spec.NodeSelector))
