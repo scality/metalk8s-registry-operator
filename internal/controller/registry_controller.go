@@ -19,18 +19,21 @@ package controller
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	cmv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 
+	nsav1alpha1 "github.com/scality/metalk8s-registry-node-agent/api/v1alpha1"
 	metalk8sv1alpha1 "github.com/scality/metalk8s-registry-operator/api/v1alpha1"
 	"github.com/scality/metalk8s-registry-operator/internal/utils"
 	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
@@ -135,6 +138,9 @@ func (r *RegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		// If no matching nodes, ignore the reconcile, but update the status
 		// As we watch the nodes, next time the labels will change on Nodes, it will reconcile
 		log.Info("no nodes matching the nodeSelector", "nodeSelector", registry.Spec.NodeSelector)
+		if err := r.deleteAllRegistryResources(ctx, *registry.Spec.Namespace); err != nil {
+			return ctrl.Result{}, fmt.Errorf("error deleting Registry resources: %w", err)
+		}
 		return ctrl.Result{}, nil
 	}
 
@@ -172,7 +178,107 @@ func (r *RegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 	}
 
+	// 6. Clean unused StatefulSets
+	registryNodeAgentStatefulSets := &appsv1.StatefulSetList{}
+	err = r.List(ctx, registryNodeAgentStatefulSets,
+		client.InNamespace(*registry.Spec.Namespace),
+		client.MatchingLabels(map[string]string{RNA_APP_LABEL_KEY: RNA_APP_LABEL_VALUE}),
+	)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	for _, registryNodeAgentStatefulSet := range registryNodeAgentStatefulSets.Items {
+		nodeDeployed := registryNodeAgentStatefulSet.Labels["node"]
+		if !slices.Contains(registry.Status.SelectedNodes, nodeDeployed) {
+			err = r.deleteUnusedResourcesByNode(ctx,
+				*registry.Spec.Namespace,
+				&registryNodeAgentStatefulSet,
+				nodeDeployed,
+			)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+	}
+
 	return ctrl.Result{}, nil
+}
+
+func (r *RegistryReconciler) deleteAllRegistryResources(ctx context.Context, namespace string) error {
+	registryNodeAgentStatefulSets := &appsv1.StatefulSetList{}
+	err := r.List(ctx, registryNodeAgentStatefulSets,
+		client.InNamespace(namespace),
+		client.MatchingLabels(map[string]string{RNA_APP_LABEL_KEY: RNA_APP_LABEL_VALUE}))
+	if err != nil {
+		return err
+	}
+	for _, registryNodeAgentStatefulSet := range registryNodeAgentStatefulSets.Items {
+		nodeDeployed := registryNodeAgentStatefulSet.Labels["node"]
+		err = r.deleteUnusedResourcesByNode(ctx, namespace, &registryNodeAgentStatefulSet, nodeDeployed)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *RegistryReconciler) deleteUnusedResourcesByNode(ctx context.Context, namespace string, registryNodeAgentStatefulSet *appsv1.StatefulSet, nodeDeployed string) error {
+	err := r.Delete(ctx, registryNodeAgentStatefulSet)
+	if err != nil {
+		return fmt.Errorf("error deleting Registry Node Agent StatefulSet: %w", err)
+	}
+
+	// We need to ensure for NodeSolutionArchive full deletion (including files deletion on the node)
+	// before removing its finalizer
+	if controllerutil.ContainsFinalizer(registryNodeAgentStatefulSet, RNA_FINALIZER_NAME) {
+		// our finalizer is present, so let's check if all associated NodeSolutionArchive have been deleted
+		nodeSolutionArchiveList := &nsav1alpha1.NodeSolutionArchiveList{}
+		if err := r.List(ctx, nodeSolutionArchiveList, client.MatchingLabels(map[string]string{"node": nodeDeployed})); err != nil {
+			return fmt.Errorf("error listing NodeSolutionArchives: %w", err)
+		}
+		if len(nodeSolutionArchiveList.Items) != 0 {
+			return fmt.Errorf("remaining NodeSolutionArchives")
+		}
+		// remove our finalizer from the list and update it.
+		controllerutil.RemoveFinalizer(registryNodeAgentStatefulSet, RNA_FINALIZER_NAME)
+		if err := r.Update(ctx, registryNodeAgentStatefulSet); err != nil {
+			return fmt.Errorf("error removing finalizer: %w", err)
+		}
+	}
+
+	// Delete the Service associated to the Node
+	services := &corev1.ServiceList{}
+	err = r.List(ctx, services,
+		client.InNamespace(namespace),
+		client.MatchingLabels(map[string]string{RNA_APP_LABEL_KEY: RNA_APP_LABEL_VALUE, "node": nodeDeployed}),
+	)
+	if err != nil {
+		return fmt.Errorf("error listing Registry Node Agent Services: %w", err)
+	}
+	for _, service := range services.Items {
+		err = r.Delete(ctx, &service)
+		if err != nil {
+			return fmt.Errorf("error deleting Registry Node Agent Service: %w", err)
+		}
+	}
+
+	// Delete the Certificates associated to the Node
+	certificates := &cmv1.CertificateList{}
+	err = r.List(ctx, certificates,
+		client.InNamespace(namespace),
+		client.MatchingLabels(map[string]string{RNA_APP_LABEL_KEY: RNA_APP_LABEL_VALUE, "node": nodeDeployed}),
+	)
+	if err != nil {
+		return fmt.Errorf("error listing Registry Node Agent Certificates: %w", err)
+	}
+	for _, certificate := range certificates.Items {
+		err = r.Delete(ctx, &certificate)
+		if err != nil {
+			return fmt.Errorf("error deleting Registry Node Agent Certificate: %w", err)
+		}
+	}
+
+	return nil
 }
 
 // matchingRegistries is a function that returns the Registry objects when event on Node matches
