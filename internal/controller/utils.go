@@ -7,11 +7,17 @@ import (
 	"context"
 	"strings"
 
+	metalk8sv1alpha1 "github.com/scality/metalk8s-registry-operator/api/v1alpha1"
+	"github.com/scality/metalk8s-registry-operator/internal/utils"
 	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 const (
+	SSA_FIELD_OWNER_NAME  = "registry-operator"
 	RNA_DEFAULT_NAMESPACE = "metalk8s-registry"
 )
 
@@ -21,6 +27,159 @@ func getHash32Name(input string) string {
 	_, _ = hasher.Write([]byte(input)) //nolint:errcheck // Write() never returns an error for the FNV implementation
 	hashSum := hasher.Sum32()
 	return fmt.Sprintf("%x", hashSum)
+}
+
+// ReconcileRNAGenericResources reconciles the generic resources of the Registry Node Agent structure
+func (r *RegistryReconciler) ReconcileRNAGenericResources(ctx context.Context, registry *metalk8sv1alpha1.Registry) error {
+	/*
+	   Object type to reconcile from the Registry Node Agent structure:
+	   * CustomResourceDefinition
+	   * Namespace
+	   * Certificate
+	   * ValidatingWebhookConfiguration
+	   * Role
+	   * ClusterRole
+	   * RoleBinding
+	   * ClusterRoleBinding
+	   * UnstructuredObjects
+	*/
+	log := logf.FromContext(ctx)
+	var err error
+
+	for _, crd := range r.RNA.CustomResourceDefinitions {
+		err = r.Patch(ctx, crd, client.Apply, client.ForceOwnership, client.FieldOwner(SSA_FIELD_OWNER_NAME))
+		if err != nil {
+			log.V(1).Info("error patching CustomResourceDefinition", "name", crd.Name)
+			return err
+		}
+		// The Patch action updates the struct with additional fields (such as managed fields)
+		// We need to clean these fields
+		utils.CleanResource(crd)
+	}
+
+	// If namespace has already been created, don't try to modify it
+	for _, ns := range r.RNA.Namespaces {
+		err = r.Patch(ctx, ns, client.Apply, client.ForceOwnership, client.FieldOwner(SSA_FIELD_OWNER_NAME))
+		if err != nil {
+			log.V(1).Info("error patching Namespace", "name", ns.Name)
+			return err
+		}
+		// The Patch action updates the struct with additional fields (such as managed fields)
+		// We need to clean these fields
+		utils.CleanResource(ns)
+	}
+
+	for _, cert := range r.RNA.Certificates {
+		cert.SetNamespace(*registry.Spec.Namespace)
+		if err := controllerutil.SetControllerReference(registry, cert, r.Scheme); err != nil {
+			log.V(1).Info("error setting controller reference for Certificate", "name", cert.Name)
+			return err
+		}
+		err = r.Patch(ctx, cert, client.Apply, client.ForceOwnership, client.FieldOwner(SSA_FIELD_OWNER_NAME))
+		if err != nil {
+			log.V(1).Info("error patching Certificate", "name", cert.Name)
+			return err
+		}
+		// The Patch action updates the struct with additional fields (such as managed fields)
+		// We need to clean these fields
+		utils.CleanResource(cert)
+	}
+
+	for _, vwc := range r.RNA.ValidatingWebhookConfigurations {
+		if err := controllerutil.SetControllerReference(registry, vwc, r.Scheme); err != nil {
+			log.V(1).Info("error setting controller reference for ValidatingWebhookConfiguration", "name", vwc.Name)
+			return err
+		}
+		err = r.Patch(ctx, vwc, client.Apply, client.ForceOwnership, client.FieldOwner(SSA_FIELD_OWNER_NAME))
+		if err != nil {
+			log.V(1).Info("error patching ValidatingWebhookConfiguration", "name", vwc.Name)
+			return err
+		}
+		// The Patch action updates the struct with additional fields (such as managed fields)
+		// We need to clean these fields
+		utils.CleanResource(vwc)
+	}
+
+	for _, role := range r.RNA.Roles {
+		role.SetNamespace(*registry.Spec.Namespace)
+		if err := controllerutil.SetControllerReference(registry, role, r.Scheme); err != nil {
+			log.V(1).Info("error setting controller reference for Role", "name", role.Name)
+			return err
+		}
+		err = r.Patch(ctx, role, client.Apply, client.ForceOwnership, client.FieldOwner(SSA_FIELD_OWNER_NAME))
+		if err != nil {
+			log.V(1).Info("error patching Role", "name", role.Name)
+			return err
+		}
+		// The Patch action updates the struct with additional fields (such as managed fields)
+		// We need to clean these fields
+		utils.CleanResource(role)
+	}
+
+	for _, clusterRole := range r.RNA.ClusterRoles {
+		if err := controllerutil.SetControllerReference(registry, clusterRole, r.Scheme); err != nil {
+			log.V(1).Info("error setting controller reference for ClusterRole", "name", clusterRole.Name)
+			return err
+		}
+		err = r.Patch(ctx, clusterRole, client.Apply, client.ForceOwnership, client.FieldOwner(SSA_FIELD_OWNER_NAME))
+		if err != nil {
+			log.V(1).Info("error patching ClusterRole", "name", clusterRole.Name)
+			return err
+		}
+		// The Patch action updates the struct with additional fields (such as managed fields)
+		// We need to clean these fields
+		utils.CleanResource(clusterRole)
+	}
+
+	for _, roleBinding := range r.RNA.RoleBindings {
+		roleBinding.SetNamespace(*registry.Spec.Namespace)
+		if err := controllerutil.SetControllerReference(registry, roleBinding, r.Scheme); err != nil {
+			log.V(1).Info("error setting controller reference for RoleBinding", "name", roleBinding.Name)
+			return err
+		}
+		err = r.Patch(ctx, roleBinding, client.Apply, client.ForceOwnership, client.FieldOwner(SSA_FIELD_OWNER_NAME))
+		if err != nil {
+			log.V(1).Info("error patching RoleBinding", "name", roleBinding.Name)
+			return err
+		}
+		// The Patch action updates the struct with additional fields (such as managed fields)
+		// We need to clean these fields
+		utils.CleanResource(roleBinding)
+	}
+
+	for _, clusterRoleBinding := range r.RNA.ClusterRoleBindings {
+		clusterRoleBinding.SetNamespace(*registry.Spec.Namespace)
+		if err := controllerutil.SetControllerReference(registry, clusterRoleBinding, r.Scheme); err != nil {
+			log.V(1).Info("error setting controller reference for ClusterRoleBinding", "name", clusterRoleBinding.Name)
+			return err
+		}
+		err = r.Patch(ctx, clusterRoleBinding, client.Apply, client.ForceOwnership, client.FieldOwner(SSA_FIELD_OWNER_NAME))
+		if err != nil {
+			log.V(1).Info("error patching ClusterRoleBinding", "name", clusterRoleBinding.Name)
+			return err
+		}
+		// The Patch action updates the struct with additional fields (such as managed fields)
+		// We need to clean these fields
+		utils.CleanResource(clusterRoleBinding)
+	}
+
+	for _, obj := range r.RNA.UnstructuredObjects {
+		obj.SetNamespace(*registry.Spec.Namespace)
+		if err := controllerutil.SetControllerReference(registry, obj, r.Scheme); err != nil {
+			log.V(1).Info("error setting controller reference for UnstructuredObject", "name", obj.GetName())
+			return err
+		}
+		err = r.Patch(ctx, obj, client.Apply, client.ForceOwnership, client.FieldOwner(SSA_FIELD_OWNER_NAME))
+		if err != nil {
+			log.V(1).Info("error patching UnstructuredObject", "name", obj.GetName())
+			return err
+		}
+		// The Patch action updates the struct with additional fields (such as managed fields)
+		// We need to clean these fields
+		utils.CleanResource(obj)
+	}
+
+	return nil
 }
 
 // ChangeNamespace changes the namespace of the Registry Node Agent manifests
