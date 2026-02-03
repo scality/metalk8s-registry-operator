@@ -17,6 +17,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -445,6 +446,45 @@ func (r *RegistryReconciler) ReconcileRNAStatefulSet(ctx context.Context, regist
 	}
 
 	return r.Patch(ctx, registryNodeAgentStatefulSet.sts, client.Apply, client.ForceOwnership, client.FieldOwner(SSA_FIELD_OWNER_NAME))
+}
+
+// ReconcileRNAService reconciles a Registry Node Agent service
+func (r *RegistryReconciler) ReconcileRNAService(ctx context.Context, registryNamespace string, nodeName string, registry *metalk8sv1alpha1.Registry) error {
+	registryNodeAgentService := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("%s-%s", RNA_INTERNAL_SERVER_CERTIFICATE_CN, nodeName),
+			Namespace: registryNamespace,
+		},
+	}
+
+	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, registryNodeAgentService, func() error {
+		registryNodeAgentService.SetLabels(map[string]string{
+			RNA_APP_LABEL_KEY: RNA_APP_LABEL_VALUE,
+			"node":            nodeName,
+		})
+		err := controllerutil.SetControllerReference(registry, registryNodeAgentService, r.Scheme)
+		if err != nil {
+			return err
+		}
+
+		registryNodeAgentService.Spec.Ports = []corev1.ServicePort{
+			{
+				Name:       "tcp-download",
+				Port:       5002,
+				Protocol:   corev1.ProtocolTCP,
+				TargetPort: intstr.FromInt32(5002),
+			},
+		}
+		registryNodeAgentService.Spec.Selector = map[string]string{
+			RNA_APP_LABEL_KEY: RNA_APP_LABEL_VALUE,
+			"control-plane":   "controller-manager",
+			"node":            nodeName,
+		}
+		registryNodeAgentService.Spec.Type = corev1.ServiceTypeClusterIP
+
+		return nil
+	})
+	return err
 }
 
 func (rna rnaSts) setAffinity(nodeName string) {

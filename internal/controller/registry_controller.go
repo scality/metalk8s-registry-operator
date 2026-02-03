@@ -138,6 +138,10 @@ func (r *RegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		if err != nil {
 			return ctrl.Result{}, fmt.Errorf("error deploying Registry Node Agent StatefulSet for node %s: %w", node.Name, err)
 		}
+		err = r.ReconcileRNAService(ctx, *registry.Spec.Namespace, node.Name, registry)
+		if err != nil {
+			return ctrl.Result{}, fmt.Errorf("error deploying Registry Node Agent service for node %s: %w", node.Name, err)
+		}
 	}
 
 	return ctrl.Result{}, nil
