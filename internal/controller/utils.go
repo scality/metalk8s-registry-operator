@@ -25,6 +25,7 @@ const (
 	SSA_FIELD_OWNER_NAME       = "registry-operator"
 	RNA_CA_NAME                = "metalk8s-registry-node-agent-ca"
 	RNA_CA_SECRET_NAME         = "rna-ca-cert"
+	RNA_CA_ISSUER_NAME         = "metalk8s-registry-node-agent-ca-issuer"
 	RNA_SELFSIGNED_ISSUER_NAME = "metalk8s-registry-node-agent-selfsigned-issuer"
 	RNA_SELFSIGNED_ISSUER_KIND = "Issuer"
 	RNA_DEFAULT_NAMESPACE      = "metalk8s-registry"
@@ -224,6 +225,30 @@ func (r *RegistryReconciler) ReconcileRNACACertificate(ctx context.Context, regi
 		return nil
 	})
 
+	return err
+}
+
+// ReconcileRNACAIssuer reconciles an Issuer linked to CA Certificate
+func (r *RegistryReconciler) ReconcileRNACAIssuer(ctx context.Context, registryNamespace string, registry *metalk8sv1alpha1.Registry) error {
+	registryNodeAgentCAIssuer := &cmv1.Issuer{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      RNA_CA_ISSUER_NAME,
+			Namespace: registryNamespace,
+		},
+	}
+
+	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, registryNodeAgentCAIssuer, func() error {
+		err := controllerutil.SetControllerReference(registry, registryNodeAgentCAIssuer, r.Scheme)
+		if err != nil {
+			return err
+		}
+		registryNodeAgentCAIssuer.Spec.IssuerConfig = cmv1.IssuerConfig{
+			CA: &cmv1.CAIssuer{
+				SecretName: RNA_CA_SECRET_NAME,
+			},
+		}
+		return nil
+	})
 	return err
 }
 
