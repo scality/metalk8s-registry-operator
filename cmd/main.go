@@ -233,6 +233,19 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Load CustomResourceDefinitions from registryNodeAgent
+	for _, crd := range registryNodeAgent.CustomResourceDefinitions {
+		setupLog.Info("Loading CustomResourceDefinition", "name", crd.Name)
+		err = mgr.GetClient().Patch(ctx, crd, client.Apply, client.ForceOwnership, client.FieldOwner("registry-operator"))
+		if err != nil {
+			setupLog.Error(err, "failed to patch CustomResourceDefinition", "name", crd.Name)
+			os.Exit(1)
+		}
+		// The Patch action updates the struct with additional fields (such as managed fields)
+		// We need to clean these fields
+		utils.CleanResource(crd)
+	}
+
 	if err := (&controller.SolutionArchiveReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
