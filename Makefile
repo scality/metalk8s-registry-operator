@@ -112,6 +112,17 @@ vet: ## Run go vet against code.
 test: manifests generate fmt vet setup-envtest ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out
 
+REGISTRY_NODE_AGENT := v0.0.1-alpha.3
+dist/registry-node-agent.yaml:
+	@mkdir -p $(@D)
+	@URL="https://api.github.com/repos/scality/metalk8s-registry-node-agent/releases/tags/$(REGISTRY_NODE_AGENT)" && \
+	BUNDLE_URL=$$(curl -sS -H "Authorization: token $$GIT_ACCESS_TOKEN" "$$URL" | jq -r '.assets[] | select(.name == "bundle.yaml") | .url') && \
+	curl -sSL -H "Authorization: token $$GIT_ACCESS_TOKEN" -H "Accept: application/octet-stream" "$$BUNDLE_URL" -o $@ && \
+	ls -l dist/
+
+.PHONY: download-manifests
+download-manifests: dist/registry-node-agent.yaml
+
 # TODO(user): To use a different vendor for e2e tests, modify the setup under 'tests/e2e'.
 # The default setup assumes Kind is pre-installed and builds/loads the Manager Docker image locally.
 # CertManager is installed by default; skip with:
