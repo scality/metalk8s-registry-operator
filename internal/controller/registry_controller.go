@@ -43,6 +43,7 @@ import (
 )
 
 const (
+	FINALIZER_NAME      = "metalk8s.scality.com/finalizer"
 	RNA_APP_LABEL_KEY   = "app.kubernetes.io/name"
 	RNA_APP_LABEL_VALUE = "metalk8s-registry-node-agent"
 )
@@ -107,10 +108,49 @@ func (r *RegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	nbAgentsAvailable := 0
 	nbAgentReady := 0
 
-	// 2. Change Namespace into Registry-Node-Agent manifest
+	// 2. Add finalizer to deal with registry deletion
+	//
+	// examine DeletionTimestamp to determine if object is under deletion
+	if registry.DeletionTimestamp.IsZero() {
+		log.V(1).Info("instance is not being deleted")
+		// The object is not being deleted, so if it does not have our finalizer,
+		// then lets add the finalizer and update the object. This is equivalent
+		// to registering our finalizer.
+		if !controllerutil.ContainsFinalizer(registry, FINALIZER_NAME) {
+			log.V(1).Info("Adding finalizer to Registry")
+			controllerutil.AddFinalizer(registry, FINALIZER_NAME)
+			if err := r.Update(ctx, registry); err != nil {
+				return ctrl.Result{}, fmt.Errorf("error adding finalizer to Registry: %w", err)
+			}
+		}
+	} else {
+		// The object is being deleted
+		log.V(1).Info("Registry is being deleted")
+		if controllerutil.ContainsFinalizer(registry, FINALIZER_NAME) {
+			// our finalizer is present, so lets handle any external dependency
+			log.V(1).Info("deleting Registry resources")
+			if err := r.deleteAllRegistryResources(ctx, *registry.Spec.Namespace); err != nil {
+				// if fail to delete the external dependency here, return with error
+				// so that it can be retried.
+				return ctrl.Result{}, fmt.Errorf("error deleting Registry resources: %w", err)
+			}
+
+			// remove our finalizer from the list and update it.
+			log.V(1).Info("removing finalizer from Registry")
+			controllerutil.RemoveFinalizer(registry, FINALIZER_NAME)
+			if err := r.Update(ctx, registry); err != nil {
+				return ctrl.Result{}, fmt.Errorf("error removing finalizer from Registry: %w", err)
+			}
+		}
+
+		// Stop reconciliation as the item is being deleted
+		return ctrl.Result{}, nil
+	}
+
+	// 3. Change Namespace into Registry-Node-Agent manifest
 	r.ChangeNamespace(ctx, *registry.Spec.Namespace)
 
-	// 3. Reconcile the Registry Node Agent generic infrastructure resources
+	// 4. Reconcile the Registry Node Agent generic infrastructure resources
 	err := r.ReconcileRNAGenericResources(ctx, registry)
 	if err != nil {
 		registry.Status.Available = ptr.To(false)
@@ -143,7 +183,7 @@ func (r *RegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, fmt.Errorf("error deploying Registry Node Agent external client CA certificate: %w", err)
 	}
 
-	// 4. List all nodes matching the nodeSelector
+	// 5. List all nodes matching the nodeSelector
 	matchingNodes := &corev1.NodeList{}
 	err = r.List(ctx, matchingNodes, client.MatchingLabels(registry.Spec.NodeSelector))
 	if err != nil {
@@ -164,7 +204,7 @@ func (r *RegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, nil
 	}
 
-	// 5. Update the status.SelectedNodes with the list of matching nodes and deploy node-specific resources
+	// 6. Update the status.SelectedNodes with the list of matching nodes and deploy node-specific resources
 	for _, node := range matchingNodes.Items {
 		// Determine NodeIP
 		nodeIP := ""
@@ -210,7 +250,7 @@ func (r *RegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		nbAgentsAvailable++
 	}
 
-	// 6. Clean unused StatefulSets
+	// 7. Clean unused StatefulSets
 	registryNodeAgentStatefulSets := &appsv1.StatefulSetList{}
 	err = r.List(ctx, registryNodeAgentStatefulSets,
 		client.InNamespace(*registry.Spec.Namespace),
@@ -243,7 +283,7 @@ func (r *RegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 	}
 
-	// 7. Update the status.Available
+	// 8. Update the status.Available
 	registry.Status.Available = ptr.To(true)
 	registry.Status.Ready = ptr.To(ready)
 	registry.Status.AgentAvailable = ptr.To(nbAgentsAvailable == *registry.Status.Replicas)
