@@ -131,8 +131,8 @@ github.com/prometheus/procfs v0.17.0/go.mod h1:oPQLaDAMRbA+u8H5Pbfq+dl3VDAvHxMUO
 github.com/rogpeppe/go-internal v1.13.1 h1:KvO1DLK/DRN07sQ1LQKScxyZJuNnedQ5/wKSR38lUII=
 github.com/rogpeppe/go-internal v1.13.1/go.mod h1:uMEvuHeurkdAXX61udpOXGD/AzZDWNMNyH2VO9fmH0o=
 github.com/russross/blackfriday/v2 v2.1.0/go.mod h1:+Rmxgy9KzJVeS9/2gXHxylqXiyQDYRxCVz55jmeOWTM=
-github.com/scality/metalk8s-registry-node-agent v0.0.1-alpha.2 h1:7ounw5uXlSNoq3+ADOFrx6rEFdEHVGGus4rV6IOLwKg=
-github.com/scality/metalk8s-registry-node-agent v0.0.1-alpha.2/go.mod h1:4lCW4HjaifuMd++2spzk13ROQihOUJ/T362bm4TSiK0=
+github.com/scality/metalk8s-registry-node-agent v0.0.1-alpha.4 h1:JnING0NR9d0+pPbVDFlCX+7MnJ4RsP6YM40nExfb0M4=
+github.com/scality/metalk8s-registry-node-agent v0.0.1-alpha.4/go.mod h1:4lCW4HjaifuMd++2spzk13ROQihOUJ/T362bm4TSiK0=
 github.com/spf13/cobra v1.10.1 h1:lJeBwCfmrnXthfAupyUTzJ/J4Nc1RsHC/mSRU2dll/s=
 github.com/spf13/cobra v1.10.1/go.mod h1:7SmJGaTHFVBY0jW4NXGluQoLvhqFQM+6XSKD+P4XaB0=
 github.com/spf13/pflag v1.0.9/go.mod h1:McXfInJRrz4CZXVZOBLb0bTZqETkiAhM9Iw0y3An2Bg=
