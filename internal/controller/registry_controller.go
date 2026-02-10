@@ -102,27 +102,44 @@ func (r *RegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 	}()
 
+	// Initialize variable to track status
+	ready := true
+	nbAgentsAvailable := 0
+	nbAgentReady := 0
+
 	// 2. Change Namespace into Registry-Node-Agent manifest
 	r.ChangeNamespace(ctx, *registry.Spec.Namespace)
 
 	// 3. Reconcile the Registry Node Agent generic infrastructure resources
 	err := r.ReconcileRNAGenericResources(ctx, registry)
 	if err != nil {
+		registry.Status.Available = ptr.To(false)
+		registry.Status.Ready = ptr.To(false)
+		registry.Status.ReadyAgentReplicas = ptr.To(0)
 		return ctrl.Result{}, fmt.Errorf("error reconciling Registry Node Agent generic resources: %w", err)
 	}
 
 	err = r.ReconcileRNACACertificate(ctx, *registry.Spec.Namespace, registry)
 	if err != nil {
+		registry.Status.Available = ptr.To(false)
+		registry.Status.Ready = ptr.To(false)
+		registry.Status.ReadyAgentReplicas = ptr.To(0)
 		return ctrl.Result{}, fmt.Errorf("error deploying Registry Node Agent CA certificate: %w", err)
 	}
 
 	err = r.ReconcileRNACAIssuer(ctx, *registry.Spec.Namespace, registry)
 	if err != nil {
+		registry.Status.Available = ptr.To(false)
+		registry.Status.Ready = ptr.To(false)
+		registry.Status.ReadyAgentReplicas = ptr.To(0)
 		return ctrl.Result{}, fmt.Errorf("error deploying Registry Node Agent CA issuer: %w", err)
 	}
 
 	err = r.ReconcileRNAExternalClientCACertificate(ctx, *registry.Spec.Namespace, registry)
 	if err != nil {
+		registry.Status.Available = ptr.To(false)
+		registry.Status.Ready = ptr.To(false)
+		registry.Status.ReadyAgentReplicas = ptr.To(0)
 		return ctrl.Result{}, fmt.Errorf("error deploying Registry Node Agent external client CA certificate: %w", err)
 	}
 
@@ -138,6 +155,9 @@ func (r *RegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		// If no matching nodes, ignore the reconcile, but update the status
 		// As we watch the nodes, next time the labels will change on Nodes, it will reconcile
 		log.Info("no nodes matching the nodeSelector", "nodeSelector", registry.Spec.NodeSelector)
+		registry.Status.Available = ptr.To(false)
+		registry.Status.Ready = ptr.To(false)
+		registry.Status.ReadyAgentReplicas = ptr.To(0)
 		if err := r.deleteAllRegistryResources(ctx, *registry.Spec.Namespace); err != nil {
 			return ctrl.Result{}, fmt.Errorf("error deleting Registry resources: %w", err)
 		}
@@ -158,24 +178,36 @@ func (r *RegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		registry.Status.SelectedNodes = append(registry.Status.SelectedNodes, node.Name)
 		err := r.ReconcileRNAStatefulSet(ctx, *registry.Spec.Namespace, node.Name, registry)
 		if err != nil {
+			registry.Status.Available = ptr.To(false)
+			registry.Status.Ready = ptr.To(false)
 			return ctrl.Result{}, fmt.Errorf("error deploying Registry Node Agent StatefulSet for node %s: %w", node.Name, err)
 		}
 		err = r.ReconcileRNAService(ctx, *registry.Spec.Namespace, node.Name, registry)
 		if err != nil {
+			registry.Status.Available = ptr.To(false)
+			registry.Status.Ready = ptr.To(false)
 			return ctrl.Result{}, fmt.Errorf("error deploying Registry Node Agent service for node %s: %w", node.Name, err)
 		}
 		err = r.ReconcileRNAExternalServerCertificate(ctx, *registry.Spec.Namespace, node.Name, nodeIP, registry)
 		if err != nil {
+			registry.Status.Available = ptr.To(false)
+			registry.Status.Ready = ptr.To(false)
 			return ctrl.Result{}, fmt.Errorf("error deploying Registry Node Agent external server certificate for node %s: %w", node.Name, err)
 		}
 		err = r.ReconcileRNAInternalServerCertificate(ctx, *registry.Spec.Namespace, node.Name, registry)
 		if err != nil {
+			registry.Status.Available = ptr.To(false)
+			registry.Status.Ready = ptr.To(false)
 			return ctrl.Result{}, fmt.Errorf("error deploying Registry Node Agent internal server certificate for node %s: %w", node.Name, err)
 		}
 		err = r.ReconcileRNAClientCertificate(ctx, *registry.Spec.Namespace, node.Name, registry)
 		if err != nil {
+			registry.Status.Available = ptr.To(false)
+			registry.Status.Ready = ptr.To(false)
 			return ctrl.Result{}, fmt.Errorf("error deploying Registry Node Agent client certificate for node %s: %w", node.Name, err)
 		}
+
+		nbAgentsAvailable++
 	}
 
 	// 6. Clean unused StatefulSets
@@ -189,6 +221,7 @@ func (r *RegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 	for _, registryNodeAgentStatefulSet := range registryNodeAgentStatefulSets.Items {
 		nodeDeployed := registryNodeAgentStatefulSet.Labels["node"]
+		agentReady := true
 		if !slices.Contains(registry.Status.SelectedNodes, nodeDeployed) {
 			err = r.deleteUnusedResourcesByNode(ctx,
 				*registry.Spec.Namespace,
@@ -198,8 +231,24 @@ func (r *RegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			if err != nil {
 				return ctrl.Result{}, err
 			}
+		} else {
+			// Retrieve the status of StatefulSet
+			if registryNodeAgentStatefulSet.Status.AvailableReplicas != 1 {
+				ready = false // nolint:ineffassign // ready is initialized to true
+				agentReady = false
+			}
+		}
+		if agentReady {
+			nbAgentReady++
 		}
 	}
+
+	// 7. Update the status.Available
+	registry.Status.Available = ptr.To(true)
+	registry.Status.Ready = ptr.To(ready)
+	registry.Status.AgentAvailable = ptr.To(nbAgentsAvailable == *registry.Status.Replicas)
+	registry.Status.AgentReady = ptr.To(nbAgentReady == *registry.Status.Replicas)
+	registry.Status.ReadyAgentReplicas = ptr.To(nbAgentReady)
 
 	return ctrl.Result{}, nil
 }
