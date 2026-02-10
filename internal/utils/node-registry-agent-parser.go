@@ -150,3 +150,17 @@ func processResource[T any, S []*T](
 	// 3. Appending to the slice (requires dereferencing the slice pointer)
 	*targetSlice = append(*targetSlice, &resource)
 }
+
+// Flush flushes the RegistryNodeAgent
+func (r *RegistryNodeAgent) Flush() {
+	r.ValidatingWebhookConfigurations = r.ValidatingWebhookConfigurations[:0]
+	r.UnstructuredObjects = r.UnstructuredObjects[:0]
+	r.Namespaces = r.Namespaces[:0]
+	r.CustomResourceDefinitions = r.CustomResourceDefinitions[:0]
+	r.StatefulSets = r.StatefulSets[:0]
+	r.Roles = r.Roles[:0]
+	r.ClusterRoles = r.ClusterRoles[:0]
+	r.RoleBindings = r.RoleBindings[:0]
+	r.ClusterRoleBindings = r.ClusterRoleBindings[:0]
+	r.Certificates = r.Certificates[:0]
+}

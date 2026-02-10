@@ -25,6 +25,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	cmv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	nsav1alpha1 "github.com/scality/metalk8s-registry-node-agent/api/v1alpha1"
 	metalk8sv1alpha1 "github.com/scality/metalk8s-registry-operator/api/v1alpha1"
 	controller "github.com/scality/metalk8s-registry-operator/internal/controller"
@@ -44,11 +45,12 @@ import (
 // http://onsi.github.io/ginkgo/ to learn more about Ginkgo.
 
 var (
-	ctx       context.Context
-	cancel    context.CancelFunc
-	testEnv   *envtest.Environment
-	cfg       *rest.Config
-	k8sClient client.Client
+	ctx               context.Context
+	cancel            context.CancelFunc
+	testEnv           *envtest.Environment
+	cfg               *rest.Config
+	k8sClient         client.Client
+	registryNodeAgent *utils.RegistryNodeAgent
 )
 
 func TestControllers(t *testing.T) {
@@ -91,6 +93,9 @@ var _ = BeforeSuite(func() {
 	err = nsav1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
+	err = cmv1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
 	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(k8sClient).NotTo(BeNil())
@@ -109,9 +114,11 @@ var _ = BeforeSuite(func() {
 	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 
+	registryNodeAgent = utils.NewRegistryNodeAgent(ctx)
 	err = (&controller.RegistryReconciler{
 		Client: k8sManager.GetClient(),
 		Scheme: k8sClient.Scheme(),
+		RNA:    registryNodeAgent,
 	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 
