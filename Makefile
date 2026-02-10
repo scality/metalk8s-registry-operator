@@ -124,8 +124,24 @@ dist/crds/registry-node-agent.yaml:
 	NODE_AGENT_PATH=$$(go list -m -f '{{.Dir}}' github.com/scality/metalk8s-registry-node-agent) && \
 	cp "$$NODE_AGENT_PATH/config/crd/bases/metalk8s.scality.com_nodesolutionarchives.yaml" $@
 
+# Cert-manager CRDs are required for tests (Registry controller watches Certificate/Issuer).
+dist/crds/cert-manager-certificates.yaml:
+	@mkdir -p $(@D)
+	CERT_MANAGER_PATH=$$(go list -m -f '{{.Dir}}' github.com/cert-manager/cert-manager) && \
+	cp "$$CERT_MANAGER_PATH/deploy/crds/cert-manager.io_certificates.yaml" $@
+
+dist/crds/cert-manager-issuers.yaml:
+	@mkdir -p $(@D)
+	CERT_MANAGER_PATH=$$(go list -m -f '{{.Dir}}' github.com/cert-manager/cert-manager) && \
+	cp "$$CERT_MANAGER_PATH/deploy/crds/cert-manager.io_issuers.yaml" $@
+
+dist/crds/cert-manager-clusterissuers.yaml:
+	@mkdir -p $(@D)
+	CERT_MANAGER_PATH=$$(go list -m -f '{{.Dir}}' github.com/cert-manager/cert-manager) && \
+	cp "$$CERT_MANAGER_PATH/deploy/crds/cert-manager.io_clusterissuers.yaml" $@
+
 .PHONY: download-manifests
-download-manifests: dist/crds/registry-node-agent.yaml dist/registry-node-agent.yaml
+download-manifests: dist/crds/registry-node-agent.yaml dist/registry-node-agent.yaml dist/crds/cert-manager-certificates.yaml dist/crds/cert-manager-issuers.yaml dist/crds/cert-manager-clusterissuers.yaml
 
 # TODO(user): To use a different vendor for e2e tests, modify the setup under 'tests/e2e'.
 # The default setup assumes Kind is pre-installed and builds/loads the Manager Docker image locally.
