@@ -158,8 +158,10 @@ func validateRegistry(ctx context.Context, c client.Client, registry *metalk8sv1
 		}
 	case ISSUER_KIND:
 		issuer := &cmv1.Issuer{}
+		ns := registry.GetRegistryNamespace()
 		if err := c.Get(ctx, types.NamespacedName{
-			Name: registry.Spec.Server.CertificateIssuerRef.Name,
+			Name:      registry.Spec.Server.CertificateIssuerRef.Name,
+			Namespace: ns,
 		}, issuer); err != nil {
 			return fmt.Errorf("server issuer doesn't exist")
 		}
@@ -178,8 +180,10 @@ func validateRegistry(ctx context.Context, c client.Client, registry *metalk8sv1
 		}
 	case ISSUER_KIND:
 		issuer := &cmv1.Issuer{}
+		ns := registry.GetRegistryNamespace()
 		if err := c.Get(ctx, types.NamespacedName{
-			Name: registry.Spec.Agent.CertificateIssuerRef.Name,
+			Name:      registry.Spec.Agent.CertificateIssuerRef.Name,
+			Namespace: ns,
 		}, issuer); err != nil {
 			return fmt.Errorf("agent issuer doesn't exist")
 		}
