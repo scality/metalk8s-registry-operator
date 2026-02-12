@@ -5,6 +5,7 @@ go 1.25.0
 require (
 	github.com/cert-manager/cert-manager v1.19.2
 	github.com/go-logr/logr v1.4.3
+	github.com/hashicorp/go-version v1.7.0
 	github.com/onsi/ginkgo/v2 v2.27.1
 	github.com/onsi/gomega v1.38.2
 	github.com/scality/metalk8s-registry-node-agent v0.0.1-alpha.6

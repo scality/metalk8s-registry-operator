@@ -276,6 +276,26 @@ func main() {
 	}
 	// +kubebuilder:scaffold:builder
 
+	// Create a field index for the SolutionArchive object
+	// This will allow us to quickly find the SolutionArchive object by its Name and Version
+	saNameVersion := func(rawObj client.Object) []string {
+		versionedNamed := utils.GetSolutionArchiveVersionedName(
+			rawObj.(*metalk8sv1alpha1.SolutionArchive).Spec.Name,
+			rawObj.(*metalk8sv1alpha1.SolutionArchive).Spec.Version,
+		)
+		return []string{versionedNamed}
+	}
+	err = mgr.GetFieldIndexer().IndexField(
+		context.Background(),
+		&metalk8sv1alpha1.SolutionArchive{},
+		"SolutionArchiveNameVersion",
+		saNameVersion,
+	)
+	if err != nil {
+		setupLog.Error(err, "failed to create field index for SolutionArchive")
+		os.Exit(1)
+	}
+
 	// Create a field index for the NodeSolutionArchive object
 	// This will allow us to quickly find the NodeSolutionArchive object by its Name and Version
 	nsaNameVersion := func(rawObj client.Object) []string {
