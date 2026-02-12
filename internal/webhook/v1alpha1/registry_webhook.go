@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -39,8 +40,6 @@ func SetupRegistryWebhookWithManager(mgr ctrl.Manager) error {
 		Complete()
 }
 
-// TODO(user): EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-
 // +kubebuilder:webhook:path=/mutate-metalk8s-scality-com-v1alpha1-registry,mutating=true,failurePolicy=fail,sideEffects=None,groups=metalk8s.scality.com,resources=registries,verbs=create;update,versions=v1alpha1,name=mregistry-v1alpha1.kb.io,admissionReviewVersions=v1
 
 // RegistryCustomDefaulter struct is responsible for setting default values on the custom resource of the
@@ -49,7 +48,6 @@ func SetupRegistryWebhookWithManager(mgr ctrl.Manager) error {
 // NOTE: The +kubebuilder:object:generate=false marker prevents controller-gen from generating DeepCopy methods,
 // as it is used only for temporary operations and does not need to be deeply copied.
 type RegistryCustomDefaulter struct {
-	// TODO(user): Add more fields as needed for defaulting
 }
 
 var _ webhook.CustomDefaulter = &RegistryCustomDefaulter{}
@@ -63,7 +61,9 @@ func (d *RegistryCustomDefaulter) Default(_ context.Context, obj runtime.Object)
 	}
 	registrylog.Info("Defaulting for Registry", "name", registry.GetName())
 
-	// TODO(user): fill in your defaulting logic.
+	registry.Spec.Namespace = ptr.To(registry.GetRegistryNamespace())
+	registry.Spec.ArchivesPath = ptr.To(registry.GetArchivesPath())
+	registry.Spec.SolutionsPath = ptr.To(registry.GetSolutionsPath())
 
 	return nil
 }
