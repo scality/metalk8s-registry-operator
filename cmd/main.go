@@ -269,6 +269,10 @@ func main() {
 			setupLog.Error(err, "unable to create webhook", "webhook", "Registry")
 			os.Exit(1)
 		}
+		if err := webhookv1alpha1.SetupSolutionArchiveWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create webhook", "webhook", "SolutionArchive")
+			os.Exit(1)
+		}
 	}
 	// +kubebuilder:scaffold:builder
 

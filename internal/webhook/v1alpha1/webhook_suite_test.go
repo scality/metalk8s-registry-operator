@@ -112,6 +112,9 @@ var _ = BeforeSuite(func() {
 	err = SetupRegistryWebhookWithManager(mgr)
 	Expect(err).NotTo(HaveOccurred())
 
+	err = SetupSolutionArchiveWebhookWithManager(mgr)
+	Expect(err).NotTo(HaveOccurred())
+
 	// +kubebuilder:scaffold:webhook
 
 	go func() {

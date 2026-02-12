@@ -24,3 +24,28 @@ webhooks:
     resources:
     - registries
   sideEffects: None
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: validating-webhook-configuration
+webhooks:
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /validate-metalk8s-scality-com-v1alpha1-solutionarchive
+  failurePolicy: Fail
+  name: vsolutionarchive-v1alpha1.kb.io
+  rules:
+  - apiGroups:
+    - metalk8s.scality.com
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    resources:
+    - solutionarchives
+  sideEffects: None
