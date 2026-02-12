@@ -30,6 +30,7 @@ import (
 var _ = Describe("Registry Webhook", func() {
 	var (
 		obj       *metalk8sv1alpha1.Registry
+		validator RegistryCustomValidator
 		defaulter RegistryCustomDefaulter
 	)
 
@@ -80,6 +81,8 @@ var _ = Describe("Registry Webhook", func() {
 				},
 			},
 		}
+		validator = RegistryCustomValidator{}
+		Expect(validator).NotTo(BeNil(), "Expected validator to be initialized")
 		defaulter = RegistryCustomDefaulter{}
 		Expect(defaulter).NotTo(BeNil(), "Expected defaulter to be initialized")
 		Expect(obj).NotTo(BeNil(), "Expected obj to be initialized")
@@ -204,5 +207,28 @@ var _ = Describe("Registry Webhook", func() {
 			By("checking that the default values are set")
 			Expect(obj.Spec.SolutionsPath).To(Equal(ptr.To("/path/to/solutions")))
 		})
+	})
+
+	Context("When creating or updating Registry under Validating Webhook", func() {
+		// TODO (user): Add logic for validating webhooks
+		// Example:
+		// It("Should deny creation if a required field is missing", func() {
+		//     By("simulating an invalid creation scenario")
+		//     obj.SomeRequiredField = ""
+		//     Expect(validator.ValidateCreate(ctx, obj)).Error().To(HaveOccurred())
+		// })
+		//
+		// It("Should admit creation if all required fields are present", func() {
+		//     By("simulating an invalid creation scenario")
+		//     obj.SomeRequiredField = "valid_value"
+		//     Expect(validator.ValidateCreate(ctx, obj)).To(BeNil())
+		// })
+		//
+		// It("Should validate updates correctly", func() {
+		//     By("simulating a valid update scenario")
+		//     oldObj.SomeRequiredField = "updated_value"
+		//     obj.SomeRequiredField = "updated_value"
+		//     Expect(validator.ValidateUpdate(ctx, oldObj, obj)).To(BeNil())
+		// })
 	})
 })
