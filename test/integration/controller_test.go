@@ -14,18 +14,21 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package controller
+package k8s
 
 import (
 	"context"
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	nsav1alpha1 "github.com/scality/metalk8s-registry-node-agent/api/v1alpha1"
+	metalk8sv1alpha1 "github.com/scality/metalk8s-registry-operator/api/v1alpha1"
+	controller "github.com/scality/metalk8s-registry-operator/internal/controller"
+	"github.com/scality/metalk8s-registry-operator/internal/utils"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -34,10 +37,6 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
-
-	nsav1alpha1 "github.com/scality/metalk8s-registry-node-agent/api/v1alpha1"
-	metalk8sv1alpha1 "github.com/scality/metalk8s-registry-operator/api/v1alpha1"
-	"github.com/scality/metalk8s-registry-operator/internal/utils"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -64,11 +63,6 @@ var _ = BeforeSuite(func() {
 	ctx, cancel = context.WithCancel(context.TODO())
 
 	var err error
-	err = metalk8sv1alpha1.AddToScheme(scheme.Scheme)
-	Expect(err).NotTo(HaveOccurred())
-
-	err = nsav1alpha1.AddToScheme(scheme.Scheme)
-	Expect(err).NotTo(HaveOccurred())
 
 	// +kubebuilder:scaffold:scheme
 
@@ -91,18 +85,39 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 	Expect(cfg).NotTo(BeNil())
 
-	// Create a manager to get a client with field indexing support
+	err = metalk8sv1alpha1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = nsav1alpha1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
+	Expect(err).NotTo(HaveOccurred())
+	Expect(k8sClient).NotTo(BeNil())
+
 	k8sManager, err := ctrl.NewManager(cfg, ctrl.Options{
 		Scheme: scheme.Scheme,
 		Metrics: metricsserver.Options{
 			BindAddress: "0", // Disable metrics server
 		},
 	})
-	Expect(err).NotTo(HaveOccurred())
+	Expect(err).ToNot(HaveOccurred())
+
+	err = (&controller.SolutionArchiveReconciler{
+		Client: k8sManager.GetClient(),
+		Scheme: k8sClient.Scheme(),
+	}).SetupWithManager(k8sManager)
+	Expect(err).ToNot(HaveOccurred())
+
+	err = (&controller.RegistryReconciler{
+		Client: k8sManager.GetClient(),
+		Scheme: k8sClient.Scheme(),
+	}).SetupWithManager(k8sManager)
+	Expect(err).ToNot(HaveOccurred())
 
 	// Create a field index for the NodeSolutionArchive object
 	// This will allow us to quickly find the NodeSolutionArchive object by its Name and Version
-	nsaNameVersion := func(rawObj client.Object) []string {
+	f := func(rawObj client.Object) []string {
 		versionedNamed := utils.GetNodeSolutionArchiveVersionedName(
 			rawObj.(*nsav1alpha1.NodeSolutionArchive).Spec.Name,
 			rawObj.(*nsav1alpha1.NodeSolutionArchive).Spec.Version,
@@ -113,22 +128,15 @@ var _ = BeforeSuite(func() {
 		context.Background(),
 		&nsav1alpha1.NodeSolutionArchive{},
 		"NodeSolutionArchiveNameVersion",
-		nsaNameVersion,
+		f,
 	)
 	Expect(err).ToNot(HaveOccurred())
-
-	// Use the manager's client which has the field index
-	k8sClient = k8sManager.GetClient()
-	Expect(k8sClient).NotTo(BeNil())
 
 	go func() {
 		defer GinkgoRecover()
 		err = k8sManager.Start(ctx)
 		Expect(err).ToNot(HaveOccurred(), "failed to run manager")
 	}()
-
-	// Wait for the manager (and its cache) to start
-	time.Sleep(1 * time.Second)
 })
 
 var _ = AfterSuite(func() {
@@ -147,7 +155,7 @@ var _ = AfterSuite(func() {
 // setting the 'KUBEBUILDER_ASSETS' environment variable. To ensure the binaries are
 // properly set up, run 'make setup-envtest' beforehand.
 func getFirstFoundEnvTestBinaryDir() string {
-	basePath := filepath.Join("..", "..", "bin", "k8s")
+	basePath := filepath.Join("..", "..", "..", "bin", "k8s")
 	entries, err := os.ReadDir(basePath)
 	if err != nil {
 		logf.Log.Error(err, "Failed to read directory", "path", basePath)

@@ -57,6 +57,7 @@ func (r *RegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	// Ensure we update the status in case of early return
 	original := registry.DeepCopy()
+	registry.InitStatus()
 	defer func() {
 		if err := r.Status().Patch(ctx, registry, client.MergeFrom(original)); err != nil {
 			log.Error(err, "unable to patch Registry status")

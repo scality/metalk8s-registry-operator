@@ -4,11 +4,26 @@ metadata:
   labels:
     app.kubernetes.io/name: metalk8s-registry-operator
     app.kubernetes.io/managed-by: kustomize
-  name: solutionarchive-sample
+  name: metalk8s-1.25.5
 spec:
-  name: my-new-solution
-  version: "1.2.0"
+  name: metalk8s
+  version: "1.25.5"
   validation:
     checksum:
       type: sha256
-      value: "123abc"
+      value: 4f55c3c729aa2982c78719f885df3652e02c60787e94fcaf2a222abf4d2de156
+---
+apiVersion: metalk8s.scality.com/v1alpha1
+kind: SolutionArchive
+metadata:
+  labels:
+    app.kubernetes.io/name: metalk8s-registry-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: metalk8s-1.25.4
+spec:
+  name: metalk8s
+  version: "1.25.4"
+  validation:
+    checksum:
+      type: sha256
+      value: 76d8f44ef227eca6a1b367cc8e76d489490224d24b195745157bb518c0b43a00
