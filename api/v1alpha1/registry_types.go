@@ -31,6 +31,9 @@ const (
 	RegistryNodeAgentImageRegistry = "ghcr.io/scality"
 	RegistryNodeAgentImageName     = "metalk8s-registry-agent"
 	RegistryNodeAgentImageTag      = "v0.0.1-alpha.1"
+	DEFAULT_NAMESPACE              = "metalk8s-registry"
+	DEFAULT_ARCHIVES_PATH          = "/srv/scality/metalk8s/archives"
+	DEFAULT_SOLUTIONS_PATH         = "/srv/scality/metalk8s/solutions"
 )
 
 type ImageSpec struct {
@@ -249,4 +252,29 @@ func (is *ImageSpec) GetImage() string {
 		registryImageName = is.Registry + "/"
 	}
 	return registryImageName + is.Name + ":" + *is.Tag
+}
+
+// GetRegistryNamespace returns the namespace of the registry, or its default value if not set.
+// note: We cannot use GetNamespace name as it is already defined by Kubernetes.
+func (r *Registry) GetRegistryNamespace() string {
+	if r.Spec.Namespace != nil && *r.Spec.Namespace != "" {
+		return *r.Spec.Namespace
+	}
+	return DEFAULT_NAMESPACE
+}
+
+// GetArchivesPath returns the archives path of the registry, or its default value if not set.
+func (r *Registry) GetArchivesPath() string {
+	if r.Spec.ArchivesPath != nil && *r.Spec.ArchivesPath != "" {
+		return *r.Spec.ArchivesPath
+	}
+	return DEFAULT_ARCHIVES_PATH
+}
+
+// GetSolutionsPath returns the solutions path of the registry, or its default value if not set.
+func (r *Registry) GetSolutionsPath() string {
+	if r.Spec.SolutionsPath != nil && *r.Spec.SolutionsPath != "" {
+		return *r.Spec.SolutionsPath
+	}
+	return DEFAULT_SOLUTIONS_PATH
 }
