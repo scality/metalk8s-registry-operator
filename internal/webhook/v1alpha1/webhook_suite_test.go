@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	metalk8sv1alpha1 "github.com/scality/metalk8s-registry-operator/api/v1alpha1"
+	"github.com/scality/metalk8s-registry-operator/internal/utils"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -91,10 +92,6 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 	Expect(cfg).NotTo(BeNil())
 
-	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
-	Expect(err).NotTo(HaveOccurred())
-	Expect(k8sClient).NotTo(BeNil())
-
 	// start webhook server using Manager.
 	webhookInstallOptions := &testEnv.WebhookInstallOptions
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
@@ -111,6 +108,26 @@ var _ = BeforeSuite(func() {
 
 	err = SetupRegistryWebhookWithManager(mgr)
 	Expect(err).NotTo(HaveOccurred())
+
+	err = SetupSolutionArchiveWebhookWithManager(mgr)
+	Expect(err).NotTo(HaveOccurred())
+
+	// Register the SolutionArchiveNameVersion index so the webhook can list by name+version
+	saNameVersion := func(rawObj client.Object) []string {
+		sa := rawObj.(*metalk8sv1alpha1.SolutionArchive)
+		return []string{utils.GetSolutionArchiveVersionedName(sa.Spec.Name, sa.Spec.Version)}
+	}
+	err = mgr.GetFieldIndexer().IndexField(
+		context.Background(),
+		&metalk8sv1alpha1.SolutionArchive{},
+		"SolutionArchiveNameVersion",
+		saNameVersion,
+	)
+	Expect(err).NotTo(HaveOccurred())
+
+	// Use the manager's client so it has the cache and indexes (required for MatchingFields in the webhook)
+	k8sClient = mgr.GetClient()
+	Expect(k8sClient).NotTo(BeNil())
 
 	// +kubebuilder:scaffold:webhook
 

@@ -12,6 +12,11 @@ func GetNodeSolutionArchiveVersionedName(name string, version string) string {
 	return fmt.Sprintf("%s-%s", name, version)
 }
 
+// GetSolutionArchiveVersionedName returns the versioned name of the SolutionArchive
+func GetSolutionArchiveVersionedName(name string, version string) string {
+	return fmt.Sprintf("%s-%s", name, version)
+}
+
 // CleanResource cleans the resource by setting the managed fields, resource version, UID, and creation timestamp to empty
 func CleanResource(obj client.Object) {
 	obj.SetManagedFields(nil)
