@@ -21,19 +21,45 @@ import (
 	. "github.com/onsi/gomega"
 	"k8s.io/utils/ptr"
 
+	cmv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	cmmetav1 "github.com/cert-manager/cert-manager/pkg/apis/meta/v1"
 	metalk8sv1alpha1 "github.com/scality/metalk8s-registry-operator/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+)
+
+const (
+	TEST_NAMESPACE     = "my-namespace"
+	MTLS_NAMESPACE     = "mtls-namespace"
+	CA_SECRET_NAME     = "registry-agent-mtls-ca"
+	SERVER_ISSUER_NAME = "registry-server-issuer"
+	AGENT_ISSUER_NAME  = "registry-agent-issuer"
 )
 
 var _ = Describe("Registry Webhook", func() {
 	var (
-		obj       *metalk8sv1alpha1.Registry
-		defaulter RegistryCustomDefaulter
+		obj                 *metalk8sv1alpha1.Registry
+		validator           RegistryCustomValidator
+		defaulter           RegistryCustomDefaulter
+		caSecret            *corev1.Secret
+		serverClusterIssuer *cmv1.ClusterIssuer
+		agentIssuer         *cmv1.Issuer
 	)
 
 	BeforeEach(func() {
+		By("creating a CA secret")
+		caSecret = &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: CA_SECRET_NAME, Namespace: MTLS_NAMESPACE}}
+		Expect(k8sClient.Create(ctx, caSecret)).To(Succeed())
+
+		By("creating a server clusterIssuer")
+		serverClusterIssuer = &cmv1.ClusterIssuer{ObjectMeta: metav1.ObjectMeta{Name: SERVER_ISSUER_NAME}}
+		Expect(k8sClient.Create(ctx, serverClusterIssuer)).To(Succeed())
+
+		By("creating a agent issuer")
+		agentIssuer = &cmv1.Issuer{ObjectMeta: metav1.ObjectMeta{Name: AGENT_ISSUER_NAME, Namespace: TEST_NAMESPACE}}
+		Expect(k8sClient.Create(ctx, agentIssuer)).To(Succeed())
+
 		obj = &metalk8sv1alpha1.Registry{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "registry-with-defaults",
@@ -61,13 +87,13 @@ var _ = Describe("Registry Webhook", func() {
 				Agent: metalk8sv1alpha1.RegistryNodeAgentSpec{
 					CertificateIssuerRef: cmmetav1.ObjectReference{
 						Name: "registry-agent-issuer",
-						Kind: "ClusterIssuer",
+						Kind: "Issuer",
 					},
 					Authentication: metalk8sv1alpha1.AuthenticationSpec{
 						MTLS: metalk8sv1alpha1.MTLSAuthenticationSpec{
 							CASecretRef: corev1.SecretReference{
 								Name:      "registry-agent-mtls-ca",
-								Namespace: "my-namespace",
+								Namespace: "mtls-namespace",
 							},
 						},
 					},
@@ -80,12 +106,22 @@ var _ = Describe("Registry Webhook", func() {
 				},
 			},
 		}
+		validator = RegistryCustomValidator{client: k8sClient}
+		Expect(validator).NotTo(BeNil(), "Expected validator to be initialized")
 		defaulter = RegistryCustomDefaulter{}
 		Expect(defaulter).NotTo(BeNil(), "Expected defaulter to be initialized")
 		Expect(obj).NotTo(BeNil(), "Expected obj to be initialized")
 	})
 
 	AfterEach(func() {
+		By("deleting the CA secret")
+		Expect(k8sClient.Delete(ctx, caSecret)).To(Succeed())
+
+		By("deleting the server clusterIssuer")
+		Expect(k8sClient.Delete(ctx, serverClusterIssuer)).To(Succeed())
+
+		By("deleting the agent issuer")
+		Expect(k8sClient.Delete(ctx, agentIssuer)).To(Succeed())
 	})
 
 	Context("When Default is called with a wrong object type", func() {
@@ -203,6 +239,130 @@ var _ = Describe("Registry Webhook", func() {
 
 			By("checking that the default values are set")
 			Expect(obj.Spec.SolutionsPath).To(Equal(ptr.To("/path/to/solutions")))
+		})
+	})
+
+	Context("When ValidateCreate is called with a wrong object type", func() {
+		It("Should return an error when obj is not a Registry", func() {
+			By("calling ValidateCreate with a non-Registry runtime.Object")
+			wrongObj := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "not-a-registry"}}
+			_, err := validator.ValidateCreate(ctx, wrongObj)
+
+			By("checking that an error is returned")
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("expected a Registry object but got"))
+			Expect(err.Error()).To(ContainSubstring("*v1.Pod"))
+		})
+	})
+
+	Context("When creating Registry under Validating Webhook", func() {
+		It("Should deny creation if another registry already exists", func() {
+			By("creating another registry")
+			anotherRegistry := obj.DeepCopy()
+			anotherRegistry.ObjectMeta = metav1.ObjectMeta{Name: "another-registry"}
+			Expect(k8sClient.Create(ctx, anotherRegistry)).To(Succeed())
+
+			By("waiting for the cache to see the created registry")
+			Eventually(func() error {
+				r := &metalk8sv1alpha1.Registry{}
+				return k8sClient.Get(ctx, client.ObjectKeyFromObject(anotherRegistry), r)
+			}).Should(Succeed())
+
+			By("validating the creation")
+			Expect(validator.ValidateCreate(ctx, obj)).Error().To(HaveOccurred())
+
+			By("deleting the other registry to cleanup")
+			DeferCleanup(func() {
+				_ = k8sClient.Delete(ctx, anotherRegistry)
+			})
+		})
+
+		It("Should deny creation if mTLS secret doesn't exist", func() {
+			By("creating a registry with a missing mTLS secret")
+			obj.Spec.Agent.Authentication.MTLS.CASecretRef.Name = "missing-secret"
+
+			By("validating the creation")
+			Expect(validator.ValidateCreate(ctx, obj)).Error().To(HaveOccurred())
+		})
+
+		It("Should deny creation if server clusterIssuer doesn't exist", func() {
+			By("creating a registry with a missing server clusterIssuer")
+			obj.Spec.Server.CertificateIssuerRef.Name = "missing-clusterIssuer"
+
+			By("validating the creation")
+			Expect(validator.ValidateCreate(ctx, obj)).Error().To(HaveOccurred())
+		})
+
+		It("Should deny creation if agent clusterIssuer doesn't exist", func() {
+			By("creating a registry with a missing agent clusterIssuer")
+			obj.Spec.Agent.CertificateIssuerRef.Kind = "ClusterIssuer"
+			obj.Spec.Agent.CertificateIssuerRef.Name = "missing-clusterIssuer"
+
+			By("validating the creation")
+			Expect(validator.ValidateCreate(ctx, obj)).Error().To(HaveOccurred())
+		})
+
+		It("Should deny creation if server issuer doesn't exist", func() {
+			By("creating a registry with a missing server issuer")
+			obj.Spec.Server.CertificateIssuerRef.Kind = "Issuer"
+
+			By("validating the creation")
+			Expect(validator.ValidateCreate(ctx, obj)).Error().To(HaveOccurred())
+		})
+
+		It("Should deny creation if agent issuer doesn't exist", func() {
+			By("creating a registry with a missing agent issuer")
+			obj.Spec.Agent.CertificateIssuerRef.Name = "missing-issuer"
+
+			By("validating the creation")
+			Expect(validator.ValidateCreate(ctx, obj)).Error().To(HaveOccurred())
+		})
+
+		It("Should allow creation when registry is valid and no other registry exists", func() {
+			_, err := validator.ValidateCreate(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+		})
+	})
+
+	Context("When updating Registry under Validating Webhook", func() {
+		It("Should allow update when LogLevel field is changed", func() {
+			By("creating a registry with LogLevel field set to info")
+			oldRegistry := obj.DeepCopy()
+			oldRegistry.ObjectMeta = metav1.ObjectMeta{Name: "loglevel-registry"}
+			oldRegistry.Spec.LogLevel = ptr.To("info")
+			Expect(k8sClient.Create(ctx, oldRegistry)).To(Succeed())
+
+			DeferCleanup(func() {
+				_ = k8sClient.Delete(ctx, oldRegistry)
+			})
+
+			By("modifying the registry with different logLevel")
+			newRegistry := oldRegistry.DeepCopy()
+			newRegistry.Spec.LogLevel = ptr.To("debug")
+
+			By("validating the update")
+			_, err := validator.ValidateUpdate(ctx, oldRegistry, newRegistry)
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("Should deny update when server ClusterIssuer does not exist", func() {
+			By("creating a registry with a valid server ClusterIssuer")
+			oldRegistry := obj.DeepCopy()
+			oldRegistry.ObjectMeta = metav1.ObjectMeta{Name: "registry-non-existent-issuer"}
+			Expect(k8sClient.Create(ctx, oldRegistry)).To(Succeed())
+
+			DeferCleanup(func() {
+				_ = k8sClient.Delete(ctx, oldRegistry)
+			})
+
+			By("updating the registry to reference a non-existent ClusterIssuer")
+			newRegistry := oldRegistry.DeepCopy()
+			newRegistry.Spec.Server.CertificateIssuerRef.Name = "non-existent-clusterissuer"
+
+			By("validating the update")
+			_, err := validator.ValidateUpdate(ctx, oldRegistry, newRegistry)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("server clusterIssuer doesn't exist"))
 		})
 	})
 })
