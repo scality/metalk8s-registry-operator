@@ -24,6 +24,15 @@ import (
 	"k8s.io/utils/ptr"
 )
 
+const (
+	RegistryServerImageRegistry    = "ghcr.io/scality"
+	RegistryServerImageName        = "metalk8s-registry-server"
+	RegistryServerImageTag         = "v1.0.0"
+	RegistryNodeAgentImageRegistry = "ghcr.io/scality"
+	RegistryNodeAgentImageName     = "metalk8s-registry-agent"
+	RegistryNodeAgentImageTag      = "v0.0.1-alpha.1"
+)
+
 type ImageSpec struct {
 	// Registry URL.
 	Registry string `json:"registry"`
@@ -75,6 +84,18 @@ type RegistryNodeAgentSpec struct {
 
 // RegistrySpec defines the desired state of Registry.
 type RegistrySpec struct {
+	// Log level for Registry Node Agent and Registry Server, defaults to "info"
+	// +kubebuilder:default=info
+	// +kubebuilder:validation:Optional
+	LogLevel *string `json:"logLevel,omitempty"`
+	// HostPath where to store ISO files, defaults to "/srv/scality/metalk8s/archives"
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
+	ArchivesPath *string `json:"archivesPath,omitempty"`
+	// HostPath where to mount ISO files, defaults to "/srv/scality/metalk8s/solutions"
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
+	SolutionsPath *string `json:"solutionsPath,omitempty"`
 	// Namespace where the registry resources are deployed, defaults to "metalk8s-registry-system".
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
 	// +kubebuilder:validation:Optional
@@ -196,4 +217,36 @@ func (registry *Registry) InitStatus() {
 	if registry.Status.SelectedNodes == nil {
 		registry.Status.SelectedNodes = []string{}
 	}
+}
+
+func (registry *Registry) WithDefaults() {
+	if registry.Spec.Agent.Image == nil {
+		registry.Spec.Agent.Image = &ImageSpec{
+			Registry: RegistryNodeAgentImageRegistry,
+			Name:     RegistryNodeAgentImageName,
+			Tag:      ptr.To(RegistryNodeAgentImageTag),
+		}
+	}
+	if registry.Spec.Agent.Image.Tag == nil {
+		registry.Spec.Agent.Image.Tag = ptr.To("latest")
+	}
+
+	if registry.Spec.Server.Image == nil {
+		registry.Spec.Server.Image = &ImageSpec{
+			Registry: RegistryServerImageRegistry,
+			Name:     RegistryServerImageName,
+			Tag:      ptr.To(RegistryServerImageTag),
+		}
+	}
+	if registry.Spec.Server.Image.Tag == nil {
+		registry.Spec.Server.Image.Tag = ptr.To("latest")
+	}
+}
+
+func (is *ImageSpec) GetImage() string {
+	registryImageName := ""
+	if is.Registry != "" {
+		registryImageName = is.Registry + "/"
+	}
+	return registryImageName + is.Name + ":" + *is.Tag
 }

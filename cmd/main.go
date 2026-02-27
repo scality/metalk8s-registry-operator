@@ -22,6 +22,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -40,10 +41,12 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
+	cmv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	nsav1alpha1 "github.com/scality/metalk8s-registry-node-agent/api/v1alpha1"
 	metalk8sv1alpha1 "github.com/scality/metalk8s-registry-operator/api/v1alpha1"
 	"github.com/scality/metalk8s-registry-operator/internal/controller"
 	"github.com/scality/metalk8s-registry-operator/internal/utils"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -52,11 +55,17 @@ var (
 	setupLog = ctrl.Log.WithName("setup")
 )
 
+const (
+	timeoutDurationInSecond = 5
+)
+
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
 	utilruntime.Must(metalk8sv1alpha1.AddToScheme(scheme))
 	utilruntime.Must(nsav1alpha1.AddToScheme(scheme))
+	utilruntime.Must(apiextensionsv1.AddToScheme(scheme))
+	utilruntime.Must(cmv1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 
@@ -97,6 +106,11 @@ func main() {
 		zap.UseFlagOptions(&opts),
 		zap.StacktraceLevel(zapcore.PanicLevel),
 	))
+
+	// Initialize the base context of the application.
+	// Every dependency will be able to use this context.
+	ctx, cancel := context.WithTimeout(context.Background(), timeoutDurationInSecond*time.Second)
+	defer cancel()
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will
@@ -211,6 +225,27 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Load registry-node-agent manifests and store in a struct
+	registryNodeAgent := utils.NewRegistryNodeAgent(ctx)
+	err = registryNodeAgent.LoadManifestsFromFile("../dist/registry-node-agent.yaml")
+	if err != nil {
+		setupLog.Error(err, "failed to load registry-node-agent manifests")
+		os.Exit(1)
+	}
+
+	// Load CustomResourceDefinitions from registryNodeAgent
+	for _, crd := range registryNodeAgent.CustomResourceDefinitions {
+		setupLog.Info("Loading CustomResourceDefinition", "name", crd.Name)
+		err = mgr.GetClient().Patch(ctx, crd, client.Apply, client.ForceOwnership, client.FieldOwner("registry-operator"))
+		if err != nil {
+			setupLog.Error(err, "failed to patch CustomResourceDefinition", "name", crd.Name)
+			os.Exit(1)
+		}
+		// The Patch action updates the struct with additional fields (such as managed fields)
+		// We need to clean these fields
+		utils.CleanResource(crd)
+	}
+
 	if err := (&controller.SolutionArchiveReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
@@ -221,6 +256,7 @@ func main() {
 	if err := (&controller.RegistryReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
+		RNA:    registryNodeAgent,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Registry")
 		os.Exit(1)

@@ -50,6 +50,15 @@ jobs:
           fi
           echo "tags=$tags" >> $GITHUB_OUTPUT
           echo "version=$version" >> $GITHUB_OUTPUT
+      - name: Setup Private Go Environment
+        uses: ./.github/actions/setup-go
+        with:
+          token: ${{ secrets.GIT_ACCESS_TOKEN }}
+      - name: Download Manifests
+        run: |
+          make download-manifests
+        env:
+          GIT_ACCESS_TOKEN: ${{ secrets.GIT_ACCESS_TOKEN }}
       - name: Build image
         uses: docker/build-push-action@v6
         with:

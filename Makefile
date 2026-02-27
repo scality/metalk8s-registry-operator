@@ -112,13 +112,36 @@ vet: ## Run go vet against code.
 test: manifests generate fmt vet setup-envtest download-manifests ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out
 
+REGISTRY_NODE_AGENT := $(shell go list -f '{{.Version}}' -m github.com/scality/metalk8s-registry-node-agent)
+dist/registry-node-agent.yaml:
+	@mkdir -p $(@D)
+	@URL="https://api.github.com/repos/scality/metalk8s-registry-node-agent/releases/tags/$(REGISTRY_NODE_AGENT)" && \
+	BUNDLE_URL=$$(curl -sS -H "Authorization: token $$GIT_ACCESS_TOKEN" "$$URL" | jq -r '.assets[] | select(.name == "bundle.yaml") | .url') && \
+	curl -sSL -H "Authorization: token $$GIT_ACCESS_TOKEN" -H "Accept: application/octet-stream" "$$BUNDLE_URL" -o $@
+
 dist/crds/registry-node-agent.yaml:
 	@mkdir -p $(@D)
 	NODE_AGENT_PATH=$$(go list -m -f '{{.Dir}}' github.com/scality/metalk8s-registry-node-agent) && \
 	cp "$$NODE_AGENT_PATH/config/crd/bases/metalk8s.scality.com_nodesolutionarchives.yaml" $@
 
+# Cert-manager CRDs are required for tests (Registry controller watches Certificate/Issuer).
+dist/crds/cert-manager-certificates.yaml:
+	@mkdir -p $(@D)
+	CERT_MANAGER_PATH=$$(go list -m -f '{{.Dir}}' github.com/cert-manager/cert-manager) && \
+	cp "$$CERT_MANAGER_PATH/deploy/crds/cert-manager.io_certificates.yaml" $@
+
+dist/crds/cert-manager-issuers.yaml:
+	@mkdir -p $(@D)
+	CERT_MANAGER_PATH=$$(go list -m -f '{{.Dir}}' github.com/cert-manager/cert-manager) && \
+	cp "$$CERT_MANAGER_PATH/deploy/crds/cert-manager.io_issuers.yaml" $@
+
+dist/crds/cert-manager-clusterissuers.yaml:
+	@mkdir -p $(@D)
+	CERT_MANAGER_PATH=$$(go list -m -f '{{.Dir}}' github.com/cert-manager/cert-manager) && \
+	cp "$$CERT_MANAGER_PATH/deploy/crds/cert-manager.io_clusterissuers.yaml" $@
+
 .PHONY: download-manifests
-download-manifests: dist/crds/registry-node-agent.yaml
+download-manifests: dist/crds/registry-node-agent.yaml dist/registry-node-agent.yaml dist/crds/cert-manager-certificates.yaml dist/crds/cert-manager-issuers.yaml dist/crds/cert-manager-clusterissuers.yaml
 
 # TODO(user): To use a different vendor for e2e tests, modify the setup under 'tests/e2e'.
 # The default setup assumes Kind is pre-installed and builds/loads the Manager Docker image locally.
@@ -175,7 +198,7 @@ run: manifests generate fmt vet ## Run a controller from your host.
 # (i.e. docker build --platform linux/arm64). However, you must enable docker buildKit for it.
 # More info: https://docs.docker.com/develop/develop-images/build_enhancements/
 .PHONY: docker-build
-docker-build: ## Build docker image with the manager.
+docker-build: download-manifests ## Build docker image with the manager.
 	$(CONTAINER_TOOL) build --secret id=GIT_AUTH_TOKEN -t ${IMG} .
 
 .PHONY: docker-push

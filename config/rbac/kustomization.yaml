@@ -28,4 +28,7 @@ resources:
 - solutionarchive_admin_role.yaml
 - solutionarchive_editor_role.yaml
 - solutionarchive_viewer_role.yaml
-
+# controller-gen does not deal with nonResourceURLs, so we use
+# additional RBAC configurations to allow the registry-operator
+# to apply the required clusterRole to registry-node-Agent
+- additional_rbac.yaml

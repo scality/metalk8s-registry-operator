@@ -87,6 +87,14 @@ func (r *SolutionArchiveReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 	registry := registryList.Items[0]
 
+	// 2bis. Check the Registry is not being deleted
+	if registry.DeletionTimestamp != nil {
+		log.Info("Registry is being deleted")
+		solutionArchive.ResetStatus()
+		err := r.deleteUnexpectedNodeSolutionArchives(ctx, solutionArchive, []string{})
+		return ctrl.Result{}, err
+	}
+
 	// 3. Generate NodeSolutionArchive objects for all nodes
 	//    If no nodes are defined on registry resource, ignore
 	//    It will reconcile later when registry will update its status

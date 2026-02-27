@@ -1,5 +1,5 @@
 # Adds namespace to all resources.
-namespace: metalk8s-registry-operator-system
+namespace: metalk8s-registry-system
 
 # Value of this field is prepended to the
 # names of all resources, e.g. a deployment named

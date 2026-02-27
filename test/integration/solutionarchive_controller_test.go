@@ -18,6 +18,7 @@ package k8s
 
 import (
 	"context"
+	"path/filepath"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -25,8 +26,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 
 	rnav1alpha1 "github.com/scality/metalk8s-registry-node-agent/api/v1alpha1"
 	metalk8sv1alpha1 "github.com/scality/metalk8s-registry-operator/api/v1alpha1"
@@ -38,6 +41,8 @@ var _ = Describe("SolutionArchive Controller", func() {
 	timeout := 10 * time.Second
 	interval := 1 * time.Second
 
+	const secretNamespace = "metalk8s-secret"
+	const registryNamespace = "metalk8s-registry"
 	const registryName = "test-registry"
 	registryNamespacedName := types.NamespacedName{
 		Name: registryName,
@@ -48,14 +53,48 @@ var _ = Describe("SolutionArchive Controller", func() {
 	registry := &metalk8sv1alpha1.Registry{}
 
 	BeforeEach(func() {
+		By("Loading the registry node agent manifests")
+		manifestPath := filepath.Join("..", "..", "dist", "registry-node-agent.yaml")
+		Expect(registryNodeAgent.LoadManifestsFromFile(manifestPath)).To(Succeed())
+		// We flush ValidatingWebhookConfigurations because in envtest there is no webhook server,
+		// so the API server call times out and status is never updated.
+		registryNodeAgent.ValidatingWebhookConfigurations = registryNodeAgent.ValidatingWebhookConfigurations[:0]
+
+		By("creating the namespace and CA secret required by the Registry")
+		ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: secretNamespace}}
+		if err := k8sClient.Create(ctx, ns); err != nil && !errors.IsAlreadyExists(err) {
+			Expect(err).NotTo(HaveOccurred())
+		}
+		caSecret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: "registry-agent-mtls-ca", Namespace: secretNamespace},
+			Data:       map[string][]byte{"ca.crt": []byte("dummy-ca-cert")},
+		}
+		if err := k8sClient.Create(ctx, caSecret); err != nil && !errors.IsAlreadyExists(err) {
+			Expect(err).NotTo(HaveOccurred())
+		}
+
 		By("creating a Registry resource")
 		registryResource = &metalk8sv1alpha1.Registry{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: registryName,
 			},
 			Spec: metalk8sv1alpha1.RegistrySpec{
+				LogLevel:      ptr.To("info"),
+				ArchivesPath:  ptr.To("/srv/scality/metalk8s/archives"),
+				SolutionsPath: ptr.To("/srv/scality/metalk8s/solutions"),
+				Namespace:     ptr.To(registryNamespace),
 				NodeSelector: map[string]string{
-					"registry": "true",
+					"registry": "test1",
+				},
+				Agent: metalk8sv1alpha1.RegistryNodeAgentSpec{
+					Authentication: metalk8sv1alpha1.AuthenticationSpec{
+						MTLS: metalk8sv1alpha1.MTLSAuthenticationSpec{
+							CASecretRef: corev1.SecretReference{
+								Name:      "registry-agent-mtls-ca",
+								Namespace: secretNamespace,
+							},
+						},
+					},
 				},
 			},
 		}
@@ -80,7 +119,17 @@ var _ = Describe("SolutionArchive Controller", func() {
 			return err != nil
 		}, timeout, interval).Should(BeTrue())
 
+		By("deleting the CA secret")
+		caSecret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: "registry-agent-mtls-ca", Namespace: secretNamespace},
+		}
+		Expect(k8sClient.Delete(ctx, caSecret)).To(Succeed())
+
+		// Wait for the registry resource to be deleted
 		time.Sleep(1 * time.Second)
+
+		By("flushing the registry node agent resources")
+		registryNodeAgent.Flush()
 	})
 
 	Context("When reconciling a new resource without selected nodes on registry", func() {
@@ -146,7 +195,7 @@ var _ = Describe("SolutionArchive Controller", func() {
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "node-1",
 					Labels: map[string]string{
-						"registry": "true",
+						"registry": "test1",
 					},
 				},
 			}
@@ -154,7 +203,7 @@ var _ = Describe("SolutionArchive Controller", func() {
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "node-2",
 					Labels: map[string]string{
-						"registry": "true",
+						"registry": "test1",
 					},
 				},
 			}
@@ -218,6 +267,10 @@ var _ = Describe("SolutionArchive Controller", func() {
 				"solution-2-1.2.0-node-2",
 			))
 			Expect(createdResource.Status.Conditions).To(BeEmpty())
+
+			By("deleting the nodes")
+			Expect(k8sClient.Delete(ctx, node1Resource)).To(Succeed())
+			Expect(k8sClient.Delete(ctx, node2Resource)).To(Succeed())
 		})
 	})
 })

@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"path/filepath"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -32,6 +33,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	metalk8sv1alpha1 "github.com/scality/metalk8s-registry-operator/api/v1alpha1"
+	"github.com/scality/metalk8s-registry-operator/internal/utils"
 )
 
 var _ = Describe("Registry Controller", func() {
@@ -46,6 +48,19 @@ var _ = Describe("Registry Controller", func() {
 		registry := &metalk8sv1alpha1.Registry{}
 
 		BeforeEach(func() {
+			By("creating the namespace and CA secret required by the Registry")
+			ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "my-namespace"}}
+			if err := k8sClient.Get(ctx, types.NamespacedName{Name: ns.Name}, &corev1.Namespace{}); err != nil && errors.IsNotFound(err) {
+				Expect(k8sClient.Create(ctx, ns)).To(Succeed())
+			}
+			caSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: "registry-agent-mtls-ca", Namespace: "my-namespace"},
+				Data:       map[string][]byte{"ca.crt": []byte("dummy-ca-cert")},
+			}
+			if err := k8sClient.Get(ctx, types.NamespacedName{Name: caSecret.Name, Namespace: caSecret.Namespace}, &corev1.Secret{}); err != nil && errors.IsNotFound(err) {
+				Expect(k8sClient.Create(ctx, caSecret)).To(Succeed())
+			}
+
 			By("creating the custom resource for the Kind Registry")
 			err := k8sClient.Get(ctx, typeNamespacedName, registry)
 			if err != nil && errors.IsNotFound(err) {
@@ -110,9 +125,14 @@ var _ = Describe("Registry Controller", func() {
 		})
 		It("should successfully reconcile the resource", func() {
 			By("Reconciling the created resource")
+			registryNodeAgent := utils.NewRegistryNodeAgent(ctx)
+			manifestPath := filepath.Join("..", "..", "dist", "registry-node-agent.yaml")
+			Expect(registryNodeAgent.LoadManifestsFromFile(manifestPath)).To(Succeed())
+
 			controllerReconciler := &RegistryReconciler{
 				Client: k8sClient,
 				Scheme: k8sClient.Scheme(),
+				RNA:    registryNodeAgent,
 			}
 
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{

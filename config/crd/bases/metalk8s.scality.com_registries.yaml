@@ -160,6 +160,17 @@ spec:
                 - authentication
                 - certificateIssuerRef
                 type: object
+              archivesPath:
+                description: HostPath where to store ISO files, defaults to "/srv/scality/metalk8s/archives"
+                type: string
+                x-kubernetes-validations:
+                - message: Value is immutable
+                  rule: self == oldSelf
+              logLevel:
+                default: info
+                description: Log level for Registry Node Agent and Registry Server,
+                  defaults to "info"
+                type: string
               namespace:
                 description: Namespace where the registry resources are deployed,
                   defaults to "metalk8s-registry-system".
@@ -246,6 +257,12 @@ spec:
                 required:
                 - certificateIssuerRef
                 type: object
+              solutionsPath:
+                description: HostPath where to mount ISO files, defaults to "/srv/scality/metalk8s/solutions"
+                type: string
+                x-kubernetes-validations:
+                - message: Value is immutable
+                  rule: self == oldSelf
             required:
             - agent
             - nodeSelector

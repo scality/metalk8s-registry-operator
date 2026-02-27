@@ -7,6 +7,9 @@ metadata:
   name: registry-sample
 spec:
   namespace: my-namespace
+  logLevel: debug
+  archivesPath: /srv/archives
+  solutionsPath: /srv/solutions
   nodeSelector:
     kubernetes.io/os: linux
     node-role.kubernetes.io/registry: ''
