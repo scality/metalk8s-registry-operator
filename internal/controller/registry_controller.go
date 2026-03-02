@@ -105,7 +105,7 @@ func (r *RegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}()
 
 	// Initialize variable to track status
-	ready := true
+	var ready bool
 	nbAgentsAvailable := 0
 	nbAgentReady := 0
 
@@ -154,37 +154,10 @@ func (r *RegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, err
 	}
 
-	// 7. Clean unused StatefulSets
-	registryNodeAgentStatefulSets := &appsv1.StatefulSetList{}
-	err = r.List(ctx, registryNodeAgentStatefulSets,
-		client.InNamespace(*registry.Spec.Namespace),
-		client.MatchingLabels(map[string]string{RNA_APP_LABEL_KEY: RNA_APP_LABEL_VALUE}),
-	)
+	// 7. Clean unused StatefulSets and associated resources
+	ready, nbAgentReady, err = r.cleanupUnusedStatefulSetsAndAssociatedResources(ctx, registry)
 	if err != nil {
 		return ctrl.Result{}, err
-	}
-	for _, registryNodeAgentStatefulSet := range registryNodeAgentStatefulSets.Items {
-		nodeDeployed := registryNodeAgentStatefulSet.Labels["node"]
-		agentReady := true
-		if !slices.Contains(registry.Status.SelectedNodes, nodeDeployed) {
-			err = r.deleteUnusedResourcesByNode(ctx,
-				*registry.Spec.Namespace,
-				&registryNodeAgentStatefulSet,
-				nodeDeployed,
-			)
-			if err != nil {
-				return ctrl.Result{}, err
-			}
-		} else {
-			// Retrieve the status of StatefulSet
-			if registryNodeAgentStatefulSet.Status.AvailableReplicas != 1 {
-				ready = false // nolint:ineffassign // ready is initialized to true
-				agentReady = false
-			}
-		}
-		if agentReady {
-			nbAgentReady++
-		}
 	}
 
 	// 8. Update the status.Available
@@ -291,6 +264,41 @@ func (r *RegistryReconciler) reconcilePerNodeResources(ctx context.Context, regi
 	}
 
 	return nbAgentsAvailable, nil
+}
+
+func (r *RegistryReconciler) cleanupUnusedStatefulSetsAndAssociatedResources(ctx context.Context, registry *metalk8sv1alpha1.Registry) (ready bool, nbAgentReady int, err error) {
+	ready = true
+	registryNodeAgentStatefulSets := &appsv1.StatefulSetList{}
+	if err = r.List(ctx, registryNodeAgentStatefulSets,
+		client.InNamespace(*registry.Spec.Namespace),
+		client.MatchingLabels(map[string]string{RNA_APP_LABEL_KEY: RNA_APP_LABEL_VALUE}),
+	); err != nil {
+		return false, 0, err
+	}
+	for _, registryNodeAgentStatefulSet := range registryNodeAgentStatefulSets.Items {
+		nodeDeployed := registryNodeAgentStatefulSet.Labels["node"]
+		agentReady := true
+		if !slices.Contains(registry.Status.SelectedNodes, nodeDeployed) {
+			if err = r.deleteUnusedResourcesByNode(ctx,
+				*registry.Spec.Namespace,
+				&registryNodeAgentStatefulSet,
+				nodeDeployed,
+			); err != nil {
+				return false, 0, err
+			}
+		} else {
+			// Retrieve the status of StatefulSet
+			if registryNodeAgentStatefulSet.Status.AvailableReplicas != 1 {
+				ready = false // nolint:ineffassign // ready is initialized to true
+				agentReady = false
+			}
+		}
+		if agentReady {
+			nbAgentReady++
+		}
+	}
+
+	return ready, nbAgentReady, nil
 }
 
 func (r *RegistryReconciler) deleteAllRegistryResources(ctx context.Context, namespace string) error {
