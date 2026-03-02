@@ -221,6 +221,9 @@ func (registry *Registry) InitStatus() {
 	if registry.Status.SelectedNodes == nil {
 		registry.Status.SelectedNodes = []string{}
 	}
+	if registry.Status.StatusPerNode == nil {
+		registry.Status.StatusPerNode = make(map[string]NodeStatus)
+	}
 }
 
 func (registry *Registry) WithDefaults() {

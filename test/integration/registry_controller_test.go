@@ -190,6 +190,7 @@ var _ = Describe("Registry Controller", func() {
 					"Message":            Equal("The registry agent is not ready."),
 				}),
 			))
+			Expect(createdResource.Status.StatusPerNode).To(BeEmpty())
 
 			By("deleting the custom resource for the Kind Registry")
 			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
@@ -226,6 +227,11 @@ var _ = Describe("Registry Controller", func() {
 			// Use your k8sClient to create the node
 			Expect(k8sClient.Create(ctx, node3Resource)).To(Succeed())
 			Expect(k8sClient.Create(ctx, node4Resource)).To(Succeed())
+
+			DeferCleanup(func() {
+				_ = k8sClient.Delete(ctx, node3Resource)
+				_ = k8sClient.Delete(ctx, node4Resource)
+			})
 
 			By("creating the custom resource for the Kind Registry")
 			resource := &metalk8sv1alpha1.Registry{
@@ -331,6 +337,10 @@ var _ = Describe("Registry Controller", func() {
 					"Message":            Equal("The registry agent is not ready."),
 				}),
 			))
+			Expect(createdResource.Status.StatusPerNode).To(HaveKey("node-3"))
+			Expect(createdResource.Status.StatusPerNode).To(HaveKey("node-4"))
+			Expect(createdResource.Status.StatusPerNode["node-3"].Agent.Available).To(BeTrue())
+			Expect(createdResource.Status.StatusPerNode["node-4"].Agent.Available).To(BeTrue())
 
 			By("checking the generated Services")
 			serviceResource1 := &corev1.Service{}
@@ -467,10 +477,6 @@ var _ = Describe("Registry Controller", func() {
 
 			// Wait for all reconciliations loop to be done
 			time.Sleep(1 * time.Second)
-
-			By("deleting the nodes")
-			Expect(k8sClient.Delete(ctx, node3Resource)).To(Succeed())
-			Expect(k8sClient.Delete(ctx, node4Resource)).To(Succeed())
 		})
 	})
 
@@ -501,6 +507,11 @@ var _ = Describe("Registry Controller", func() {
 			// Use your k8sClient to create the node
 			Expect(k8sClient.Create(ctx, node5Resource)).To(Succeed())
 			Expect(k8sClient.Create(ctx, node6Resource)).To(Succeed())
+
+			DeferCleanup(func() {
+				_ = k8sClient.Delete(ctx, node5Resource)
+				_ = k8sClient.Delete(ctx, node6Resource)
+			})
 
 			By("creating the custom resource for the Kind Registry")
 			resource := &metalk8sv1alpha1.Registry{
@@ -606,16 +617,450 @@ var _ = Describe("Registry Controller", func() {
 					"Message":            Equal("The registry agent is not ready."),
 				}),
 			))
+			Expect(createdResource.Status.StatusPerNode).To(BeEmpty())
 
 			By("deleting the custom resource for the Kind Registry")
 			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
 
 			// Wait for all reconciliations loop to be done
 			time.Sleep(1 * time.Second)
+		})
+	})
 
-			By("deleting the nodes")
-			Expect(k8sClient.Delete(ctx, node5Resource)).To(Succeed())
-			Expect(k8sClient.Delete(ctx, node6Resource)).To(Succeed())
+	Context("When a node is removed from the registry (no longer matches selector)", func() {
+		It("should reconcile and update status to reflect the remaining selected nodes", func() {
+			resourceName := "test-resource-with-removing-a-node"
+			typeNamespacedName := types.NamespacedName{
+				Name: resourceName,
+			}
+
+			By("Creating Nodes with labels matching the registry resource to add selected nodes")
+			node7Resource := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "node-7",
+					Labels: map[string]string{
+						"registry": "test5",
+					},
+				},
+			}
+			node8Resource := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "node-8",
+					Labels: map[string]string{
+						"registry": "test5",
+					},
+				},
+			}
+			// Use your k8sClient to create the node
+			Expect(k8sClient.Create(ctx, node7Resource)).To(Succeed())
+			Expect(k8sClient.Create(ctx, node8Resource)).To(Succeed())
+
+			DeferCleanup(func() {
+				_ = k8sClient.Delete(ctx, node7Resource)
+				_ = k8sClient.Delete(ctx, node8Resource)
+			})
+
+			By("creating the custom resource for the Kind Registry")
+			resource := &metalk8sv1alpha1.Registry{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: resourceName,
+				},
+			}
+
+			_, err := controllerutil.CreateOrUpdate(ctx, k8sClient, resource, func() error {
+				resource.Spec = metalk8sv1alpha1.RegistrySpec{
+					LogLevel:      ptr.To("info"),
+					ArchivesPath:  ptr.To("/srv/scality/metalk8s/archives"),
+					SolutionsPath: ptr.To("/srv/scality/metalk8s/solutions"),
+					Namespace:     ptr.To("namespace-test-4"),
+					NodeSelector: map[string]string{
+						"registry": "test5",
+					},
+					Server: metalk8sv1alpha1.RegistryServerSpec{
+						CertificateIssuerRef: cmmetav1.ObjectReference{
+							Name: "registry-server-issuer",
+							Kind: "ClusterIssuer",
+						},
+						Image: &metalk8sv1alpha1.ImageSpec{
+							Registry:   "ghcr.io/scality",
+							Name:       "metalk8s-registry-server",
+							Tag:        ptr.To("v2.0.0"),
+							PullPolicy: ptr.To(corev1.PullIfNotPresent),
+						},
+					},
+					Agent: metalk8sv1alpha1.RegistryNodeAgentSpec{
+						CertificateIssuerRef: cmmetav1.ObjectReference{},
+						Authentication: metalk8sv1alpha1.AuthenticationSpec{
+							MTLS: metalk8sv1alpha1.MTLSAuthenticationSpec{
+								CASecretRef: corev1.SecretReference{
+									Name:      "registry-agent-mtls-ca",
+									Namespace: secretNamespace,
+								},
+							},
+						},
+						Image: &metalk8sv1alpha1.ImageSpec{
+							Registry:   "ghcr.io/scality",
+							Name:       "metalk8s-registry-agent",
+							Tag:        ptr.To("v2.3.4"),
+							PullPolicy: ptr.To(corev1.PullIfNotPresent),
+						},
+					},
+				}
+				return nil
+			})
+
+			Expect(err).NotTo(HaveOccurred())
+
+			// Wait for all reconciliations loop to be done
+			time.Sleep(1 * time.Second)
+
+			By("checking the custom resource for the Kind Registry")
+			createdResource := &metalk8sv1alpha1.Registry{}
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, typeNamespacedName, createdResource)
+				return err == nil
+			}, timeout, interval).Should(BeTrue())
+
+			Expect(createdResource.Spec).To(Equal(resource.Spec))
+			Expect(createdResource.Status.Available).To(HaveValue(BeTrue()))
+			Expect(createdResource.Status.Ready).To(HaveValue(BeFalse()))
+			Expect(createdResource.Status.Replicas).To(HaveValue(Equal(2)))
+			Expect(createdResource.Status.ReadyServerReplicas).To(HaveValue(Equal(0)))
+			Expect(createdResource.Status.ReadyAgentReplicas).To(HaveValue(Equal(0)))
+			Expect(createdResource.Status.SelectedNodes).To(ConsistOf("node-7", "node-8"))
+			Expect(createdResource.Status.Conditions).To(ContainElement(
+				gstruct.MatchFields(gstruct.IgnoreExtras, gstruct.Fields{
+					"Type":               Equal("Available"),
+					"Status":             Equal(metav1.ConditionTrue),
+					"ObservedGeneration": Equal(int64(1)),
+					"Reason":             Equal("RegistryAvailable"),
+					"Message":            Equal("The registry is available."),
+				}),
+			))
+			Expect(createdResource.Status.Conditions).To(ContainElement(
+				gstruct.MatchFields(gstruct.IgnoreExtras, gstruct.Fields{
+					"Type":               Equal("Ready"),
+					"Status":             Equal(metav1.ConditionFalse),
+					"ObservedGeneration": Equal(int64(1)),
+					"Reason":             Equal("RegistryNotReady"),
+					"Message":            Equal("The registry is not ready."),
+				}),
+			))
+			Expect(createdResource.Status.Conditions).To(ContainElement(
+				gstruct.MatchFields(gstruct.IgnoreExtras, gstruct.Fields{
+					"Type":               Equal("AgentAvailable"),
+					"Status":             Equal(metav1.ConditionTrue),
+					"ObservedGeneration": Equal(int64(1)),
+					"Reason":             Equal("RegistryAgentAvailable"),
+					"Message":            Equal("The registry agent is available."),
+				}),
+			))
+			Expect(createdResource.Status.Conditions).To(ContainElement(
+				gstruct.MatchFields(gstruct.IgnoreExtras, gstruct.Fields{
+					"Type":               Equal("AgentReady"),
+					"Status":             Equal(metav1.ConditionFalse),
+					"ObservedGeneration": Equal(int64(1)),
+					"Reason":             Equal("RegistryAgentNotReady"),
+					"Message":            Equal("The registry agent is not ready."),
+				}),
+			))
+			Expect(createdResource.Status.StatusPerNode).To(HaveKey("node-7"))
+			Expect(createdResource.Status.StatusPerNode).To(HaveKey("node-8"))
+			Expect(createdResource.Status.StatusPerNode["node-7"].Agent.Available).To(BeTrue())
+			Expect(createdResource.Status.StatusPerNode["node-8"].Agent.Available).To(BeTrue())
+
+			By("Removing a Node from the registry")
+			node8Resource = &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "node-8",
+					Labels: map[string]string{
+						"registry": "test5-removed",
+					},
+				},
+			}
+			// Use your k8sClient to update the node
+			Expect(k8sClient.Update(ctx, node8Resource)).To(Succeed())
+
+			By("checking the custom resource for the Kind Registry")
+			createdResource = &metalk8sv1alpha1.Registry{}
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, typeNamespacedName, createdResource)).To(Succeed())
+				g.Expect(createdResource.Status.SelectedNodes).To(ConsistOf("node-7"))
+			}, timeout, interval).Should(Succeed())
+
+			Expect(createdResource.Spec).To(Equal(resource.Spec))
+			Expect(createdResource.Status.Available).To(HaveValue(BeTrue()))
+			Expect(createdResource.Status.Ready).To(HaveValue(BeFalse()))
+			Expect(createdResource.Status.Replicas).To(HaveValue(Equal(1)))
+			Expect(createdResource.Status.ReadyServerReplicas).To(HaveValue(Equal(0)))
+			Expect(createdResource.Status.ReadyAgentReplicas).To(HaveValue(Equal(0)))
+			Expect(createdResource.Status.Conditions).To(ContainElement(
+				gstruct.MatchFields(gstruct.IgnoreExtras, gstruct.Fields{
+					"Type":               Equal("Available"),
+					"Status":             Equal(metav1.ConditionTrue),
+					"ObservedGeneration": Equal(int64(1)),
+					"Reason":             Equal("RegistryAvailable"),
+					"Message":            Equal("The registry is available."),
+				}),
+			))
+			Expect(createdResource.Status.Conditions).To(ContainElement(
+				gstruct.MatchFields(gstruct.IgnoreExtras, gstruct.Fields{
+					"Type":               Equal("Ready"),
+					"Status":             Equal(metav1.ConditionFalse),
+					"ObservedGeneration": Equal(int64(1)),
+					"Reason":             Equal("RegistryNotReady"),
+					"Message":            Equal("The registry is not ready."),
+				}),
+			))
+			Expect(createdResource.Status.Conditions).To(ContainElement(
+				gstruct.MatchFields(gstruct.IgnoreExtras, gstruct.Fields{
+					"Type":               Equal("AgentAvailable"),
+					"Status":             Equal(metav1.ConditionTrue),
+					"ObservedGeneration": Equal(int64(1)),
+					"Reason":             Equal("RegistryAgentAvailable"),
+					"Message":            Equal("The registry agent is available."),
+				}),
+			))
+			Expect(createdResource.Status.Conditions).To(ContainElement(
+				gstruct.MatchFields(gstruct.IgnoreExtras, gstruct.Fields{
+					"Type":               Equal("AgentReady"),
+					"Status":             Equal(metav1.ConditionFalse),
+					"ObservedGeneration": Equal(int64(1)),
+					"Reason":             Equal("RegistryAgentNotReady"),
+					"Message":            Equal("The registry agent is not ready."),
+				}),
+			))
+			Expect(createdResource.Status.StatusPerNode).To(HaveKey("node-7"))
+			Expect(createdResource.Status.StatusPerNode).To(Not(HaveKey("node-8")))
+			Expect(createdResource.Status.StatusPerNode["node-7"].Agent.Available).To(BeTrue())
+
+			By("deleting the custom resource for the Kind Registry")
+			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
+
+			// Wait for all reconciliations loop to be done
+			time.Sleep(1 * time.Second)
+		})
+	})
+
+	Context("When all nodes are removed from the registry (no longer matches selector)", func() {
+		It("should reconcile and update status to reflect the no selected nodes", func() {
+			resourceName := "test-resource-with-removing-all-nodes"
+			typeNamespacedName := types.NamespacedName{
+				Name: resourceName,
+			}
+
+			By("Creating Nodes with labels matching the registry resource to add selected nodes")
+			node9Resource := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "node-9",
+					Labels: map[string]string{
+						"registry": "test6",
+					},
+				},
+			}
+			node10Resource := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "node-10",
+					Labels: map[string]string{
+						"registry": "test6",
+					},
+				},
+			}
+			// Use your k8sClient to create the node
+			Expect(k8sClient.Create(ctx, node9Resource)).To(Succeed())
+			Expect(k8sClient.Create(ctx, node10Resource)).To(Succeed())
+
+			DeferCleanup(func() {
+				_ = k8sClient.Delete(ctx, node9Resource)
+				_ = k8sClient.Delete(ctx, node10Resource)
+			})
+
+			By("creating the custom resource for the Kind Registry")
+			resource := &metalk8sv1alpha1.Registry{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: resourceName,
+				},
+			}
+
+			_, err := controllerutil.CreateOrUpdate(ctx, k8sClient, resource, func() error {
+				resource.Spec = metalk8sv1alpha1.RegistrySpec{
+					LogLevel:      ptr.To("info"),
+					ArchivesPath:  ptr.To("/srv/scality/metalk8s/archives"),
+					SolutionsPath: ptr.To("/srv/scality/metalk8s/solutions"),
+					Namespace:     ptr.To("namespace-test-5"),
+					NodeSelector: map[string]string{
+						"registry": "test6",
+					},
+					Server: metalk8sv1alpha1.RegistryServerSpec{
+						CertificateIssuerRef: cmmetav1.ObjectReference{
+							Name: "registry-server-issuer",
+							Kind: "ClusterIssuer",
+						},
+						Image: &metalk8sv1alpha1.ImageSpec{
+							Registry:   "ghcr.io/scality",
+							Name:       "metalk8s-registry-server",
+							Tag:        ptr.To("v3.0.0"),
+							PullPolicy: ptr.To(corev1.PullIfNotPresent),
+						},
+					},
+					Agent: metalk8sv1alpha1.RegistryNodeAgentSpec{
+						CertificateIssuerRef: cmmetav1.ObjectReference{},
+						Authentication: metalk8sv1alpha1.AuthenticationSpec{
+							MTLS: metalk8sv1alpha1.MTLSAuthenticationSpec{
+								CASecretRef: corev1.SecretReference{
+									Name:      "registry-agent-mtls-ca",
+									Namespace: secretNamespace,
+								},
+							},
+						},
+						Image: &metalk8sv1alpha1.ImageSpec{
+							Registry:   "ghcr.io/scality",
+							Name:       "metalk8s-registry-agent",
+							Tag:        ptr.To("v3.4.5"),
+							PullPolicy: ptr.To(corev1.PullIfNotPresent),
+						},
+					},
+				}
+				return nil
+			})
+
+			Expect(err).NotTo(HaveOccurred())
+
+			// Wait for all reconciliations loop to be done
+			time.Sleep(1 * time.Second)
+
+			By("checking the custom resource for the Kind Registry")
+			createdResource := &metalk8sv1alpha1.Registry{}
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, typeNamespacedName, createdResource)
+				return err == nil
+			}, timeout, interval).Should(BeTrue())
+
+			Expect(createdResource.Spec).To(Equal(resource.Spec))
+			Expect(createdResource.Status.Available).To(HaveValue(BeTrue()))
+			Expect(createdResource.Status.Ready).To(HaveValue(BeFalse()))
+			Expect(createdResource.Status.Replicas).To(HaveValue(Equal(2)))
+			Expect(createdResource.Status.ReadyServerReplicas).To(HaveValue(Equal(0)))
+			Expect(createdResource.Status.ReadyAgentReplicas).To(HaveValue(Equal(0)))
+			Expect(createdResource.Status.SelectedNodes).To(ConsistOf("node-9", "node-10"))
+			Expect(createdResource.Status.Conditions).To(ContainElement(
+				gstruct.MatchFields(gstruct.IgnoreExtras, gstruct.Fields{
+					"Type":               Equal("Available"),
+					"Status":             Equal(metav1.ConditionTrue),
+					"ObservedGeneration": Equal(int64(1)),
+					"Reason":             Equal("RegistryAvailable"),
+					"Message":            Equal("The registry is available."),
+				}),
+			))
+			Expect(createdResource.Status.Conditions).To(ContainElement(
+				gstruct.MatchFields(gstruct.IgnoreExtras, gstruct.Fields{
+					"Type":               Equal("Ready"),
+					"Status":             Equal(metav1.ConditionFalse),
+					"ObservedGeneration": Equal(int64(1)),
+					"Reason":             Equal("RegistryNotReady"),
+					"Message":            Equal("The registry is not ready."),
+				}),
+			))
+			Expect(createdResource.Status.Conditions).To(ContainElement(
+				gstruct.MatchFields(gstruct.IgnoreExtras, gstruct.Fields{
+					"Type":               Equal("AgentAvailable"),
+					"Status":             Equal(metav1.ConditionTrue),
+					"ObservedGeneration": Equal(int64(1)),
+					"Reason":             Equal("RegistryAgentAvailable"),
+					"Message":            Equal("The registry agent is available."),
+				}),
+			))
+			Expect(createdResource.Status.Conditions).To(ContainElement(
+				gstruct.MatchFields(gstruct.IgnoreExtras, gstruct.Fields{
+					"Type":               Equal("AgentReady"),
+					"Status":             Equal(metav1.ConditionFalse),
+					"ObservedGeneration": Equal(int64(1)),
+					"Reason":             Equal("RegistryAgentNotReady"),
+					"Message":            Equal("The registry agent is not ready."),
+				}),
+			))
+			Expect(createdResource.Status.StatusPerNode).To(HaveKey("node-9"))
+			Expect(createdResource.Status.StatusPerNode).To(HaveKey("node-10"))
+			Expect(createdResource.Status.StatusPerNode["node-9"].Agent.Available).To(BeTrue())
+			Expect(createdResource.Status.StatusPerNode["node-10"].Agent.Available).To(BeTrue())
+
+			By("Removing all Nodes from the registry")
+			node9Resource = &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "node-9",
+					Labels: map[string]string{
+						"registry": "test6-removed",
+					},
+				},
+			}
+			node10Resource = &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "node-10",
+					Labels: map[string]string{
+						"registry": "test6-removed",
+					},
+				},
+			}
+			// Use your k8sClient to update the nodes
+			Expect(k8sClient.Update(ctx, node9Resource)).To(Succeed())
+			Expect(k8sClient.Update(ctx, node10Resource)).To(Succeed())
+
+			By("checking the custom resource for the Kind Registry")
+			createdResource = &metalk8sv1alpha1.Registry{}
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, typeNamespacedName, createdResource)).To(Succeed())
+				g.Expect(createdResource.Status.SelectedNodes).To(BeEmpty())
+			}, timeout, interval).Should(Succeed())
+
+			Expect(createdResource.Spec).To(Equal(resource.Spec))
+			Expect(createdResource.Status.Available).To(HaveValue(BeFalse()))
+			Expect(createdResource.Status.Ready).To(HaveValue(BeFalse()))
+			Expect(createdResource.Status.Replicas).To(HaveValue(BeZero()))
+			Expect(createdResource.Status.ReadyServerReplicas).To(HaveValue(BeZero()))
+			Expect(createdResource.Status.ReadyAgentReplicas).To(HaveValue(BeZero()))
+			Expect(createdResource.Status.Conditions).To(ContainElement(
+				gstruct.MatchFields(gstruct.IgnoreExtras, gstruct.Fields{
+					"Type":               Equal("Available"),
+					"Status":             Equal(metav1.ConditionFalse),
+					"ObservedGeneration": Equal(int64(1)),
+					"Reason":             Equal("RegistryUnavailable"),
+					"Message":            Equal("The registry is not available."),
+				}),
+			))
+			Expect(createdResource.Status.Conditions).To(ContainElement(
+				gstruct.MatchFields(gstruct.IgnoreExtras, gstruct.Fields{
+					"Type":               Equal("Ready"),
+					"Status":             Equal(metav1.ConditionFalse),
+					"ObservedGeneration": Equal(int64(1)),
+					"Reason":             Equal("RegistryNotReady"),
+					"Message":            Equal("The registry is not ready."),
+				}),
+			))
+			Expect(createdResource.Status.Conditions).To(ContainElement(
+				gstruct.MatchFields(gstruct.IgnoreExtras, gstruct.Fields{
+					"Type":               Equal("AgentAvailable"),
+					"Status":             Equal(metav1.ConditionFalse),
+					"ObservedGeneration": Equal(int64(1)),
+					"Reason":             Equal("RegistryAgentNotAvailable"),
+					"Message":            Equal("The registry agent is not available."),
+				}),
+			))
+			Expect(createdResource.Status.Conditions).To(ContainElement(
+				gstruct.MatchFields(gstruct.IgnoreExtras, gstruct.Fields{
+					"Type":               Equal("AgentReady"),
+					"Status":             Equal(metav1.ConditionFalse),
+					"ObservedGeneration": Equal(int64(1)),
+					"Reason":             Equal("RegistryAgentNotReady"),
+					"Message":            Equal("The registry agent is not ready."),
+				}),
+			))
+			Expect(createdResource.Status.StatusPerNode).To(BeEmpty())
+
+			By("deleting the custom resource for the Kind Registry")
+			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
+
+			// Wait for all reconciliations loop to be done
+			time.Sleep(1 * time.Second)
 		})
 	})
 })

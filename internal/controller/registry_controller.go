@@ -124,6 +124,7 @@ func (r *RegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		registry.Status.ReadyAgentReplicas = ptr.To(0)
 		registry.SetAgentAvailable(false)
 		registry.SetAgentReady(false)
+		registry.Status.StatusPerNode = make(map[string]metalk8sv1alpha1.NodeStatus)
 		return ctrl.Result{}, err
 	}
 
@@ -144,6 +145,7 @@ func (r *RegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		registry.Status.ReadyAgentReplicas = ptr.To(0)
 		registry.SetAgentAvailable(false)
 		registry.SetAgentReady(false)
+		registry.Status.StatusPerNode = make(map[string]metalk8sv1alpha1.NodeStatus)
 		if err := r.deleteAllRegistryResources(ctx, *registry.Spec.Namespace); err != nil {
 			return ctrl.Result{}, fmt.Errorf("error deleting Registry resources: %w", err)
 		}
@@ -264,6 +266,10 @@ func (r *RegistryReconciler) reconcilePerNodeResources(ctx context.Context, regi
 			return nbAgentsAvailable, fmt.Errorf("error deploying Registry Node Agent client certificate for node %s: %w", node.Name, err)
 		}
 
+		nodeStatus := registry.Status.StatusPerNode[node.Name]
+		nodeStatus.Agent.Available = true
+		registry.Status.StatusPerNode[node.Name] = nodeStatus
+
 		nbAgentsAvailable++
 	}
 
@@ -272,6 +278,7 @@ func (r *RegistryReconciler) reconcilePerNodeResources(ctx context.Context, regi
 
 func (r *RegistryReconciler) cleanupUnusedStatefulSetsAndAssociatedResources(ctx context.Context, registry *metalk8sv1alpha1.Registry) (ready bool, nbAgentReady int, err error) {
 	ready = true
+
 	registryNodeAgentStatefulSets := &appsv1.StatefulSetList{}
 	if err = r.List(ctx, registryNodeAgentStatefulSets,
 		client.InNamespace(*registry.Spec.Namespace),
@@ -281,6 +288,7 @@ func (r *RegistryReconciler) cleanupUnusedStatefulSetsAndAssociatedResources(ctx
 	}
 	for _, registryNodeAgentStatefulSet := range registryNodeAgentStatefulSets.Items {
 		nodeDeployed := registryNodeAgentStatefulSet.Labels["node"]
+		nodeStatus := registry.Status.StatusPerNode[nodeDeployed]
 		agentReady := true
 		if !slices.Contains(registry.Status.SelectedNodes, nodeDeployed) {
 			if err = r.deleteUnusedResourcesByNode(ctx,
@@ -290,15 +298,19 @@ func (r *RegistryReconciler) cleanupUnusedStatefulSetsAndAssociatedResources(ctx
 			); err != nil {
 				return false, 0, err
 			}
+			delete(registry.Status.StatusPerNode, nodeDeployed)
 		} else {
 			// Retrieve the status of StatefulSet
 			if registryNodeAgentStatefulSet.Status.AvailableReplicas != 1 {
 				ready = false // nolint:ineffassign // ready is initialized to true
 				agentReady = false
+				nodeStatus.Agent.Ready = false
 			}
-		}
-		if agentReady {
-			nbAgentReady++
+			if agentReady {
+				nodeStatus.Agent.Ready = true
+				nbAgentReady++
+			}
+			registry.Status.StatusPerNode[nodeDeployed] = nodeStatus
 		}
 	}
 
