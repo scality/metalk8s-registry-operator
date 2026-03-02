@@ -119,9 +119,11 @@ func (r *RegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	// 4. Reconcile the Registry Node Agent generic infrastructure resources
 	if err := r.reconcileRNACoreResources(ctx, registry); err != nil {
-		registry.Status.Available = ptr.To(false)
-		registry.Status.Ready = ptr.To(false)
+		registry.SetAvailable(false)
+		registry.SetReady(false)
 		registry.Status.ReadyAgentReplicas = ptr.To(0)
+		registry.SetAgentAvailable(false)
+		registry.SetAgentReady(false)
 		return ctrl.Result{}, err
 	}
 
@@ -137,9 +139,11 @@ func (r *RegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		// If no matching nodes, ignore the reconcile, but update the status
 		// As we watch the nodes, next time the labels will change on Nodes, it will reconcile
 		log.Info("no nodes matching the nodeSelector", "nodeSelector", registry.Spec.NodeSelector)
-		registry.Status.Available = ptr.To(false)
-		registry.Status.Ready = ptr.To(false)
+		registry.SetAvailable(false)
+		registry.SetReady(false)
 		registry.Status.ReadyAgentReplicas = ptr.To(0)
+		registry.SetAgentAvailable(false)
+		registry.SetAgentReady(false)
 		if err := r.deleteAllRegistryResources(ctx, *registry.Spec.Namespace); err != nil {
 			return ctrl.Result{}, fmt.Errorf("error deleting Registry resources: %w", err)
 		}
@@ -149,8 +153,8 @@ func (r *RegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	// 6. Update the status.SelectedNodes with the list of matching nodes and deploy node-specific resources
 	nbAgentsAvailable, err = r.reconcilePerNodeResources(ctx, registry, matchingNodes)
 	if err != nil {
-		registry.Status.Available = ptr.To(false)
-		registry.Status.Ready = ptr.To(false)
+		registry.SetAvailable(false)
+		registry.SetReady(false)
 		return ctrl.Result{}, err
 	}
 
@@ -161,10 +165,10 @@ func (r *RegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	// 8. Update the status.Available
-	registry.Status.Available = ptr.To(true)
-	registry.Status.Ready = ptr.To(ready)
-	registry.Status.AgentAvailable = ptr.To(nbAgentsAvailable == *registry.Status.Replicas)
-	registry.Status.AgentReady = ptr.To(nbAgentReady == *registry.Status.Replicas)
+	registry.SetAvailable(true)
+	registry.SetReady(ready)
+	registry.SetAgentAvailable(nbAgentsAvailable == *registry.Status.Replicas)
+	registry.SetAgentReady(nbAgentReady == *registry.Status.Replicas)
 	registry.Status.ReadyAgentReplicas = ptr.To(nbAgentReady)
 
 	return ctrl.Result{}, nil

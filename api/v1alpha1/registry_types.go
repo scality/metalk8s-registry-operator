@@ -20,6 +20,7 @@ import (
 	cmmetav1 "github.com/cert-manager/cert-manager/pkg/apis/meta/v1"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 )
@@ -277,4 +278,112 @@ func (r *Registry) GetSolutionsPath() string {
 		return *r.Spec.SolutionsPath
 	}
 	return DEFAULT_SOLUTIONS_PATH
+}
+
+func (r *Registry) SetAvailable(available bool) {
+	condition := metav1.Condition{
+		Type:               "Available",
+		Status:             metav1.ConditionTrue,
+		LastTransitionTime: metav1.Now(),
+		Reason:             "RegistryAvailable",
+		Message:            "The registry is available.",
+		ObservedGeneration: r.Generation,
+	}
+	if !available {
+		condition.Status = metav1.ConditionFalse
+		condition.Reason = "RegistryUnavailable"
+		condition.Message = "The registry is not available."
+	}
+	meta.SetStatusCondition(&r.Status.Conditions, condition)
+	r.Status.Available = ptr.To(available)
+}
+
+func (r *Registry) SetReady(ready bool) {
+	condition := metav1.Condition{
+		Type:               "Ready",
+		Status:             metav1.ConditionTrue,
+		LastTransitionTime: metav1.Now(),
+		Reason:             "RegistryReady",
+		Message:            "The registry is ready.",
+		ObservedGeneration: r.Generation,
+	}
+	if !ready {
+		condition.Status = metav1.ConditionFalse
+		condition.Reason = "RegistryNotReady"
+		condition.Message = "The registry is not ready."
+	}
+	meta.SetStatusCondition(&r.Status.Conditions, condition)
+	r.Status.Ready = ptr.To(ready)
+}
+
+func (r *Registry) SetServerAvailable(available bool) {
+	condition := metav1.Condition{
+		Type:               "ServerAvailable",
+		Status:             metav1.ConditionTrue,
+		LastTransitionTime: metav1.Now(),
+		Reason:             "RegistryServerAvailable",
+		Message:            "The registry server is available.",
+		ObservedGeneration: r.Generation,
+	}
+	if !available {
+		condition.Status = metav1.ConditionFalse
+		condition.Reason = "RegistryServerNotAvailable"
+		condition.Message = "The registry server is not available."
+	}
+	meta.SetStatusCondition(&r.Status.Conditions, condition)
+	r.Status.ServerAvailable = ptr.To(available)
+}
+
+func (r *Registry) SetServerReady(ready bool) {
+	condition := metav1.Condition{
+		Type:               "ServerReady",
+		Status:             metav1.ConditionTrue,
+		LastTransitionTime: metav1.Now(),
+		Reason:             "RegistryServerReady",
+		Message:            "The registry server is ready.",
+		ObservedGeneration: r.Generation,
+	}
+	if !ready {
+		condition.Status = metav1.ConditionFalse
+		condition.Reason = "RegistryServerNotReady"
+		condition.Message = "The registry server is not ready."
+	}
+	meta.SetStatusCondition(&r.Status.Conditions, condition)
+	r.Status.ServerReady = ptr.To(ready)
+}
+
+func (r *Registry) SetAgentAvailable(available bool) {
+	condition := metav1.Condition{
+		Type:               "AgentAvailable",
+		Status:             metav1.ConditionTrue,
+		LastTransitionTime: metav1.Now(),
+		Reason:             "RegistryAgentAvailable",
+		Message:            "The registry agent is available.",
+		ObservedGeneration: r.Generation,
+	}
+	if !available {
+		condition.Status = metav1.ConditionFalse
+		condition.Reason = "RegistryAgentNotAvailable"
+		condition.Message = "The registry agent is not available."
+	}
+	meta.SetStatusCondition(&r.Status.Conditions, condition)
+	r.Status.AgentAvailable = ptr.To(available)
+}
+
+func (r *Registry) SetAgentReady(ready bool) {
+	condition := metav1.Condition{
+		Type:               "AgentReady",
+		Status:             metav1.ConditionTrue,
+		LastTransitionTime: metav1.Now(),
+		Reason:             "RegistryAgentReady",
+		Message:            "The registry agent is ready.",
+		ObservedGeneration: r.Generation,
+	}
+	if !ready {
+		condition.Status = metav1.ConditionFalse
+		condition.Reason = "RegistryAgentNotReady"
+		condition.Message = "The registry agent is not ready."
+	}
+	meta.SetStatusCondition(&r.Status.Conditions, condition)
+	r.Status.AgentReady = ptr.To(ready)
 }

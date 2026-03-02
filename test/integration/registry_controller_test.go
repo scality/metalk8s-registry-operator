@@ -23,6 +23,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/onsi/gomega/gstruct"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	cmv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
@@ -153,7 +154,42 @@ var _ = Describe("Registry Controller", func() {
 			Expect(createdResource.Status.ReadyServerReplicas).To(HaveValue(Equal(0)))
 			Expect(createdResource.Status.ReadyAgentReplicas).To(HaveValue(Equal(0)))
 			Expect(createdResource.Status.SelectedNodes).To(BeEmpty())
-			Expect(createdResource.Status.Conditions).To(BeEmpty())
+			Expect(createdResource.Status.Conditions).To(ContainElement(
+				gstruct.MatchFields(gstruct.IgnoreExtras, gstruct.Fields{
+					"Type":               Equal("Available"),
+					"Status":             Equal(metav1.ConditionFalse),
+					"ObservedGeneration": Equal(int64(1)),
+					"Reason":             Equal("RegistryUnavailable"),
+					"Message":            Equal("The registry is not available."),
+				}),
+			))
+			Expect(createdResource.Status.Conditions).To(ContainElement(
+				gstruct.MatchFields(gstruct.IgnoreExtras, gstruct.Fields{
+					"Type":               Equal("Ready"),
+					"Status":             Equal(metav1.ConditionFalse),
+					"ObservedGeneration": Equal(int64(1)),
+					"Reason":             Equal("RegistryNotReady"),
+					"Message":            Equal("The registry is not ready."),
+				}),
+			))
+			Expect(createdResource.Status.Conditions).To(ContainElement(
+				gstruct.MatchFields(gstruct.IgnoreExtras, gstruct.Fields{
+					"Type":               Equal("AgentAvailable"),
+					"Status":             Equal(metav1.ConditionFalse),
+					"ObservedGeneration": Equal(int64(1)),
+					"Reason":             Equal("RegistryAgentNotAvailable"),
+					"Message":            Equal("The registry agent is not available."),
+				}),
+			))
+			Expect(createdResource.Status.Conditions).To(ContainElement(
+				gstruct.MatchFields(gstruct.IgnoreExtras, gstruct.Fields{
+					"Type":               Equal("AgentReady"),
+					"Status":             Equal(metav1.ConditionFalse),
+					"ObservedGeneration": Equal(int64(1)),
+					"Reason":             Equal("RegistryAgentNotReady"),
+					"Message":            Equal("The registry agent is not ready."),
+				}),
+			))
 
 			By("deleting the custom resource for the Kind Registry")
 			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
@@ -259,7 +295,42 @@ var _ = Describe("Registry Controller", func() {
 			Expect(createdResource.Status.ReadyServerReplicas).To(HaveValue(Equal(0)))
 			Expect(createdResource.Status.ReadyAgentReplicas).To(HaveValue(Equal(0)))
 			Expect(createdResource.Status.SelectedNodes).To(ConsistOf("node-3", "node-4"))
-			Expect(createdResource.Status.Conditions).To(BeEmpty())
+			Expect(createdResource.Status.Conditions).To(ContainElement(
+				gstruct.MatchFields(gstruct.IgnoreExtras, gstruct.Fields{
+					"Type":               Equal("Available"),
+					"Status":             Equal(metav1.ConditionTrue),
+					"ObservedGeneration": Equal(int64(1)),
+					"Reason":             Equal("RegistryAvailable"),
+					"Message":            Equal("The registry is available."),
+				}),
+			))
+			Expect(createdResource.Status.Conditions).To(ContainElement(
+				gstruct.MatchFields(gstruct.IgnoreExtras, gstruct.Fields{
+					"Type":               Equal("Ready"),
+					"Status":             Equal(metav1.ConditionFalse),
+					"ObservedGeneration": Equal(int64(1)),
+					"Reason":             Equal("RegistryNotReady"),
+					"Message":            Equal("The registry is not ready."),
+				}),
+			))
+			Expect(createdResource.Status.Conditions).To(ContainElement(
+				gstruct.MatchFields(gstruct.IgnoreExtras, gstruct.Fields{
+					"Type":               Equal("AgentAvailable"),
+					"Status":             Equal(metav1.ConditionTrue),
+					"ObservedGeneration": Equal(int64(1)),
+					"Reason":             Equal("RegistryAgentAvailable"),
+					"Message":            Equal("The registry agent is available."),
+				}),
+			))
+			Expect(createdResource.Status.Conditions).To(ContainElement(
+				gstruct.MatchFields(gstruct.IgnoreExtras, gstruct.Fields{
+					"Type":               Equal("AgentReady"),
+					"Status":             Equal(metav1.ConditionFalse),
+					"ObservedGeneration": Equal(int64(1)),
+					"Reason":             Equal("RegistryAgentNotReady"),
+					"Message":            Equal("The registry agent is not ready."),
+				}),
+			))
 
 			By("checking the generated Services")
 			serviceResource1 := &corev1.Service{}
@@ -499,7 +570,42 @@ var _ = Describe("Registry Controller", func() {
 			Expect(createdResource.Status.ReadyServerReplicas).To(HaveValue(Equal(0)))
 			Expect(createdResource.Status.ReadyAgentReplicas).To(HaveValue(Equal(0)))
 			Expect(createdResource.Status.SelectedNodes).To(BeEmpty())
-			Expect(createdResource.Status.Conditions).To(BeEmpty())
+			Expect(createdResource.Status.Conditions).To(ContainElement(
+				gstruct.MatchFields(gstruct.IgnoreExtras, gstruct.Fields{
+					"Type":               Equal("Available"),
+					"Status":             Equal(metav1.ConditionFalse),
+					"ObservedGeneration": Equal(int64(1)),
+					"Reason":             Equal("RegistryUnavailable"),
+					"Message":            Equal("The registry is not available."),
+				}),
+			))
+			Expect(createdResource.Status.Conditions).To(ContainElement(
+				gstruct.MatchFields(gstruct.IgnoreExtras, gstruct.Fields{
+					"Type":               Equal("Ready"),
+					"Status":             Equal(metav1.ConditionFalse),
+					"ObservedGeneration": Equal(int64(1)),
+					"Reason":             Equal("RegistryNotReady"),
+					"Message":            Equal("The registry is not ready."),
+				}),
+			))
+			Expect(createdResource.Status.Conditions).To(ContainElement(
+				gstruct.MatchFields(gstruct.IgnoreExtras, gstruct.Fields{
+					"Type":               Equal("AgentAvailable"),
+					"Status":             Equal(metav1.ConditionFalse),
+					"ObservedGeneration": Equal(int64(1)),
+					"Reason":             Equal("RegistryAgentNotAvailable"),
+					"Message":            Equal("The registry agent is not available."),
+				}),
+			))
+			Expect(createdResource.Status.Conditions).To(ContainElement(
+				gstruct.MatchFields(gstruct.IgnoreExtras, gstruct.Fields{
+					"Type":               Equal("AgentReady"),
+					"Status":             Equal(metav1.ConditionFalse),
+					"ObservedGeneration": Equal(int64(1)),
+					"Reason":             Equal("RegistryAgentNotReady"),
+					"Message":            Equal("The registry agent is not ready."),
+				}),
+			))
 
 			By("deleting the custom resource for the Kind Registry")
 			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
