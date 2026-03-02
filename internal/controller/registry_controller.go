@@ -118,41 +118,16 @@ func (r *RegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	r.ChangeNamespace(ctx, *registry.Spec.Namespace)
 
 	// 4. Reconcile the Registry Node Agent generic infrastructure resources
-	err := r.ReconcileRNAGenericResources(ctx, registry)
-	if err != nil {
+	if err := r.reconcileRNACoreResources(ctx, registry); err != nil {
 		registry.Status.Available = ptr.To(false)
 		registry.Status.Ready = ptr.To(false)
 		registry.Status.ReadyAgentReplicas = ptr.To(0)
-		return ctrl.Result{}, fmt.Errorf("error reconciling Registry Node Agent generic resources: %w", err)
-	}
-
-	err = r.ReconcileRNACACertificate(ctx, *registry.Spec.Namespace, registry)
-	if err != nil {
-		registry.Status.Available = ptr.To(false)
-		registry.Status.Ready = ptr.To(false)
-		registry.Status.ReadyAgentReplicas = ptr.To(0)
-		return ctrl.Result{}, fmt.Errorf("error deploying Registry Node Agent CA certificate: %w", err)
-	}
-
-	err = r.ReconcileRNACAIssuer(ctx, *registry.Spec.Namespace, registry)
-	if err != nil {
-		registry.Status.Available = ptr.To(false)
-		registry.Status.Ready = ptr.To(false)
-		registry.Status.ReadyAgentReplicas = ptr.To(0)
-		return ctrl.Result{}, fmt.Errorf("error deploying Registry Node Agent CA issuer: %w", err)
-	}
-
-	err = r.ReconcileRNAExternalClientCACertificate(ctx, *registry.Spec.Namespace, registry)
-	if err != nil {
-		registry.Status.Available = ptr.To(false)
-		registry.Status.Ready = ptr.To(false)
-		registry.Status.ReadyAgentReplicas = ptr.To(0)
-		return ctrl.Result{}, fmt.Errorf("error deploying Registry Node Agent external client CA certificate: %w", err)
+		return ctrl.Result{}, err
 	}
 
 	// 5. List all nodes matching the nodeSelector
 	matchingNodes := &corev1.NodeList{}
-	err = r.List(ctx, matchingNodes, client.MatchingLabels(registry.Spec.NodeSelector))
+	err := r.List(ctx, matchingNodes, client.MatchingLabels(registry.Spec.NodeSelector))
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -294,6 +269,30 @@ func (r *RegistryReconciler) handleFinalizerAndDeletion(ctx context.Context, reg
 
 	// Stop reconciliation as the item is being deleted
 	return nil, true
+}
+
+func (r *RegistryReconciler) reconcileRNACoreResources(ctx context.Context, registry *metalk8sv1alpha1.Registry) (err error) {
+	err = r.ReconcileRNAGenericResources(ctx, registry)
+	if err != nil {
+		return fmt.Errorf("error reconciling Registry Node Agent generic resources: %w", err)
+	}
+
+	err = r.ReconcileRNACACertificate(ctx, *registry.Spec.Namespace, registry)
+	if err != nil {
+		return fmt.Errorf("error deploying Registry Node Agent CA certificate: %w", err)
+	}
+
+	err = r.ReconcileRNACAIssuer(ctx, *registry.Spec.Namespace, registry)
+	if err != nil {
+		return fmt.Errorf("error deploying Registry Node Agent CA issuer: %w", err)
+	}
+
+	err = r.ReconcileRNAExternalClientCACertificate(ctx, *registry.Spec.Namespace, registry)
+	if err != nil {
+		return fmt.Errorf("error deploying Registry Node Agent external client CA certificate: %w", err)
+	}
+
+	return nil
 }
 
 func (r *RegistryReconciler) deleteAllRegistryResources(ctx context.Context, namespace string) error {
