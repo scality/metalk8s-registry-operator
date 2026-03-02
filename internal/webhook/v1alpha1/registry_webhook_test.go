@@ -17,6 +17,8 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"time"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"k8s.io/utils/ptr"
@@ -45,6 +47,8 @@ var _ = Describe("Registry Webhook", func() {
 		caSecret            *corev1.Secret
 		serverClusterIssuer *cmv1.ClusterIssuer
 		agentIssuer         *cmv1.Issuer
+		timeout             = 5 * time.Second
+		interval            = 200 * time.Millisecond
 	)
 
 	BeforeEach(func() {
@@ -262,19 +266,22 @@ var _ = Describe("Registry Webhook", func() {
 			anotherRegistry.ObjectMeta = metav1.ObjectMeta{Name: "another-registry"}
 			Expect(k8sClient.Create(ctx, anotherRegistry)).To(Succeed())
 
+			DeferCleanup(func() {
+				_ = k8sClient.Delete(ctx, anotherRegistry)
+				Eventually(func() error {
+					r := &metalk8sv1alpha1.Registry{}
+					return k8sClient.Get(ctx, client.ObjectKeyFromObject(anotherRegistry), r)
+				}, timeout, interval).ShouldNot(Succeed())
+			})
+
 			By("waiting for the cache to see the created registry")
 			Eventually(func() error {
 				r := &metalk8sv1alpha1.Registry{}
 				return k8sClient.Get(ctx, client.ObjectKeyFromObject(anotherRegistry), r)
-			}).Should(Succeed())
+			}, timeout, interval).Should(Succeed())
 
 			By("validating the creation")
 			Expect(validator.ValidateCreate(ctx, obj)).Error().To(HaveOccurred())
-
-			By("deleting the other registry to cleanup")
-			DeferCleanup(func() {
-				_ = k8sClient.Delete(ctx, anotherRegistry)
-			})
 		})
 
 		It("Should deny creation if mTLS secret doesn't exist", func() {
@@ -319,8 +326,10 @@ var _ = Describe("Registry Webhook", func() {
 		})
 
 		It("Should allow creation when registry is valid and no other registry exists", func() {
-			_, err := validator.ValidateCreate(ctx, obj)
-			Expect(err).NotTo(HaveOccurred())
+			Eventually(func() error {
+				_, err := validator.ValidateCreate(ctx, obj)
+				return err
+			}, timeout, interval).Should(Succeed())
 		})
 	})
 
