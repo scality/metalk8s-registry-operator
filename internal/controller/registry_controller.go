@@ -105,88 +105,29 @@ func (r *RegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}()
 
 	// Initialize variable to track status
-	ready := true
+	var ready bool
 	nbAgentsAvailable := 0
 	nbAgentReady := 0
 
 	// 2. Add finalizer to deal with registry deletion
-	//
-	// examine DeletionTimestamp to determine if object is under deletion
-	if registry.DeletionTimestamp.IsZero() {
-		log.V(1).Info("instance is not being deleted")
-		// The object is not being deleted, so if it does not have our finalizer,
-		// then lets add the finalizer and update the object. This is equivalent
-		// to registering our finalizer.
-		if !controllerutil.ContainsFinalizer(registry, FINALIZER_NAME) {
-			log.V(1).Info("Adding finalizer to Registry")
-			controllerutil.AddFinalizer(registry, FINALIZER_NAME)
-			if err := r.Update(ctx, registry); err != nil {
-				return ctrl.Result{}, fmt.Errorf("error adding finalizer to Registry: %w", err)
-			}
-		}
-	} else {
-		// The object is being deleted
-		log.V(1).Info("Registry is being deleted")
-		if controllerutil.ContainsFinalizer(registry, FINALIZER_NAME) {
-			// our finalizer is present, so lets handle any external dependency
-			log.V(1).Info("deleting Registry resources")
-			if err := r.deleteAllRegistryResources(ctx, *registry.Spec.Namespace); err != nil {
-				// if fail to delete the external dependency here, return with error
-				// so that it can be retried.
-				return ctrl.Result{}, fmt.Errorf("error deleting Registry resources: %w", err)
-			}
-
-			// remove our finalizer from the list and update it.
-			log.V(1).Info("removing finalizer from Registry")
-			controllerutil.RemoveFinalizer(registry, FINALIZER_NAME)
-			if err := r.Update(ctx, registry); err != nil {
-				return ctrl.Result{}, fmt.Errorf("error removing finalizer from Registry: %w", err)
-			}
-		}
-
-		// Stop reconciliation as the item is being deleted
-		return ctrl.Result{}, nil
+	if err, stop := r.handleFinalizerAndDeletion(ctx, registry); stop {
+		return ctrl.Result{}, err
 	}
 
 	// 3. Change Namespace into Registry-Node-Agent manifest
 	r.ChangeNamespace(ctx, *registry.Spec.Namespace)
 
 	// 4. Reconcile the Registry Node Agent generic infrastructure resources
-	err := r.ReconcileRNAGenericResources(ctx, registry)
-	if err != nil {
+	if err := r.reconcileRNACoreResources(ctx, registry); err != nil {
 		registry.Status.Available = ptr.To(false)
 		registry.Status.Ready = ptr.To(false)
 		registry.Status.ReadyAgentReplicas = ptr.To(0)
-		return ctrl.Result{}, fmt.Errorf("error reconciling Registry Node Agent generic resources: %w", err)
-	}
-
-	err = r.ReconcileRNACACertificate(ctx, *registry.Spec.Namespace, registry)
-	if err != nil {
-		registry.Status.Available = ptr.To(false)
-		registry.Status.Ready = ptr.To(false)
-		registry.Status.ReadyAgentReplicas = ptr.To(0)
-		return ctrl.Result{}, fmt.Errorf("error deploying Registry Node Agent CA certificate: %w", err)
-	}
-
-	err = r.ReconcileRNACAIssuer(ctx, *registry.Spec.Namespace, registry)
-	if err != nil {
-		registry.Status.Available = ptr.To(false)
-		registry.Status.Ready = ptr.To(false)
-		registry.Status.ReadyAgentReplicas = ptr.To(0)
-		return ctrl.Result{}, fmt.Errorf("error deploying Registry Node Agent CA issuer: %w", err)
-	}
-
-	err = r.ReconcileRNAExternalClientCACertificate(ctx, *registry.Spec.Namespace, registry)
-	if err != nil {
-		registry.Status.Available = ptr.To(false)
-		registry.Status.Ready = ptr.To(false)
-		registry.Status.ReadyAgentReplicas = ptr.To(0)
-		return ctrl.Result{}, fmt.Errorf("error deploying Registry Node Agent external client CA certificate: %w", err)
+		return ctrl.Result{}, err
 	}
 
 	// 5. List all nodes matching the nodeSelector
 	matchingNodes := &corev1.NodeList{}
-	err = r.List(ctx, matchingNodes, client.MatchingLabels(registry.Spec.NodeSelector))
+	err := r.List(ctx, matchingNodes, client.MatchingLabels(registry.Spec.NodeSelector))
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -206,6 +147,92 @@ func (r *RegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	// 6. Update the status.SelectedNodes with the list of matching nodes and deploy node-specific resources
+	nbAgentsAvailable, err = r.reconcilePerNodeResources(ctx, registry, matchingNodes)
+	if err != nil {
+		registry.Status.Available = ptr.To(false)
+		registry.Status.Ready = ptr.To(false)
+		return ctrl.Result{}, err
+	}
+
+	// 7. Clean unused StatefulSets and associated resources
+	ready, nbAgentReady, err = r.cleanupUnusedStatefulSetsAndAssociatedResources(ctx, registry)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	// 8. Update the status.Available
+	registry.Status.Available = ptr.To(true)
+	registry.Status.Ready = ptr.To(ready)
+	registry.Status.AgentAvailable = ptr.To(nbAgentsAvailable == *registry.Status.Replicas)
+	registry.Status.AgentReady = ptr.To(nbAgentReady == *registry.Status.Replicas)
+	registry.Status.ReadyAgentReplicas = ptr.To(nbAgentReady)
+
+	return ctrl.Result{}, nil
+}
+
+// handleFinalizerAndDeletion handles finalizer and deletion. Returns true if reconciliation should stop.
+func (r *RegistryReconciler) handleFinalizerAndDeletion(ctx context.Context, registry *metalk8sv1alpha1.Registry) (error, bool) {
+	// examine DeletionTimestamp to determine if object is under deletion
+	if registry.DeletionTimestamp.IsZero() {
+		// The object is not being deleted, so if it does not have our finalizer,
+		// then lets add the finalizer and update the object. This is equivalent
+		// to registering our finalizer.
+		if !controllerutil.ContainsFinalizer(registry, FINALIZER_NAME) {
+			controllerutil.AddFinalizer(registry, FINALIZER_NAME)
+			if err := r.Update(ctx, registry); err != nil {
+				return fmt.Errorf("error adding finalizer to Registry: %w", err), true
+			}
+		}
+		return nil, false
+	}
+
+	// The object is being deleted
+	if controllerutil.ContainsFinalizer(registry, FINALIZER_NAME) {
+		// our finalizer is present, so lets handle any external dependency
+		if err := r.deleteAllRegistryResources(ctx, *registry.Spec.Namespace); err != nil {
+			// if fail to delete the external dependency here, return with error
+			// so that it can be retried.
+			return fmt.Errorf("error deleting Registry resources: %w", err), true
+		}
+
+		// remove our finalizer from the list and update it.
+		controllerutil.RemoveFinalizer(registry, FINALIZER_NAME)
+		if err := r.Update(ctx, registry); err != nil {
+			return fmt.Errorf("error removing finalizer from Registry: %w", err), true
+		}
+	}
+
+	// Stop reconciliation as the item is being deleted
+	return nil, true
+}
+
+func (r *RegistryReconciler) reconcileRNACoreResources(ctx context.Context, registry *metalk8sv1alpha1.Registry) (err error) {
+	err = r.ReconcileRNAGenericResources(ctx, registry)
+	if err != nil {
+		return fmt.Errorf("error reconciling Registry Node Agent generic resources: %w", err)
+	}
+
+	err = r.ReconcileRNACACertificate(ctx, *registry.Spec.Namespace, registry)
+	if err != nil {
+		return fmt.Errorf("error deploying Registry Node Agent CA certificate: %w", err)
+	}
+
+	err = r.ReconcileRNACAIssuer(ctx, *registry.Spec.Namespace, registry)
+	if err != nil {
+		return fmt.Errorf("error deploying Registry Node Agent CA issuer: %w", err)
+	}
+
+	err = r.ReconcileRNAExternalClientCACertificate(ctx, *registry.Spec.Namespace, registry)
+	if err != nil {
+		return fmt.Errorf("error deploying Registry Node Agent external client CA certificate: %w", err)
+	}
+
+	return nil
+}
+
+func (r *RegistryReconciler) reconcilePerNodeResources(ctx context.Context, registry *metalk8sv1alpha1.Registry, matchingNodes *corev1.NodeList) (int, error) {
+	nbAgentsAvailable := 0
+
 	for _, node := range matchingNodes.Items {
 		// Determine NodeIP
 		nodeIP := ""
@@ -217,60 +244,47 @@ func (r *RegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 		// Update the field "SelectedNodes" in registry Status
 		registry.Status.SelectedNodes = append(registry.Status.SelectedNodes, node.Name)
-		err := r.ReconcileRNAStatefulSet(ctx, *registry.Spec.Namespace, node.Name, registry)
-		if err != nil {
-			registry.Status.Available = ptr.To(false)
-			registry.Status.Ready = ptr.To(false)
-			return ctrl.Result{}, fmt.Errorf("error deploying Registry Node Agent StatefulSet for node %s: %w", node.Name, err)
+		if err := r.ReconcileRNAStatefulSet(ctx, *registry.Spec.Namespace, node.Name, registry); err != nil {
+			return nbAgentsAvailable, fmt.Errorf("error deploying Registry Node Agent StatefulSet for node %s: %w", node.Name, err)
 		}
-		err = r.ReconcileRNAService(ctx, *registry.Spec.Namespace, node.Name, registry)
-		if err != nil {
-			registry.Status.Available = ptr.To(false)
-			registry.Status.Ready = ptr.To(false)
-			return ctrl.Result{}, fmt.Errorf("error deploying Registry Node Agent service for node %s: %w", node.Name, err)
+		if err := r.ReconcileRNAService(ctx, *registry.Spec.Namespace, node.Name, registry); err != nil {
+			return nbAgentsAvailable, fmt.Errorf("error deploying Registry Node Agent service for node %s: %w", node.Name, err)
 		}
-		err = r.ReconcileRNAExternalServerCertificate(ctx, *registry.Spec.Namespace, node.Name, nodeIP, registry)
-		if err != nil {
-			registry.Status.Available = ptr.To(false)
-			registry.Status.Ready = ptr.To(false)
-			return ctrl.Result{}, fmt.Errorf("error deploying Registry Node Agent external server certificate for node %s: %w", node.Name, err)
+		if err := r.ReconcileRNAExternalServerCertificate(ctx, *registry.Spec.Namespace, node.Name, nodeIP, registry); err != nil {
+			return nbAgentsAvailable, fmt.Errorf("error deploying Registry Node Agent external server certificate for node %s: %w", node.Name, err)
 		}
-		err = r.ReconcileRNAInternalServerCertificate(ctx, *registry.Spec.Namespace, node.Name, registry)
-		if err != nil {
-			registry.Status.Available = ptr.To(false)
-			registry.Status.Ready = ptr.To(false)
-			return ctrl.Result{}, fmt.Errorf("error deploying Registry Node Agent internal server certificate for node %s: %w", node.Name, err)
+		if err := r.ReconcileRNAInternalServerCertificate(ctx, *registry.Spec.Namespace, node.Name, registry); err != nil {
+			return nbAgentsAvailable, fmt.Errorf("error deploying Registry Node Agent internal server certificate for node %s: %w", node.Name, err)
 		}
-		err = r.ReconcileRNAClientCertificate(ctx, *registry.Spec.Namespace, node.Name, registry)
-		if err != nil {
-			registry.Status.Available = ptr.To(false)
-			registry.Status.Ready = ptr.To(false)
-			return ctrl.Result{}, fmt.Errorf("error deploying Registry Node Agent client certificate for node %s: %w", node.Name, err)
+		if err := r.ReconcileRNAClientCertificate(ctx, *registry.Spec.Namespace, node.Name, registry); err != nil {
+			return nbAgentsAvailable, fmt.Errorf("error deploying Registry Node Agent client certificate for node %s: %w", node.Name, err)
 		}
 
 		nbAgentsAvailable++
 	}
 
-	// 7. Clean unused StatefulSets
+	return nbAgentsAvailable, nil
+}
+
+func (r *RegistryReconciler) cleanupUnusedStatefulSetsAndAssociatedResources(ctx context.Context, registry *metalk8sv1alpha1.Registry) (ready bool, nbAgentReady int, err error) {
+	ready = true
 	registryNodeAgentStatefulSets := &appsv1.StatefulSetList{}
-	err = r.List(ctx, registryNodeAgentStatefulSets,
+	if err = r.List(ctx, registryNodeAgentStatefulSets,
 		client.InNamespace(*registry.Spec.Namespace),
 		client.MatchingLabels(map[string]string{RNA_APP_LABEL_KEY: RNA_APP_LABEL_VALUE}),
-	)
-	if err != nil {
-		return ctrl.Result{}, err
+	); err != nil {
+		return false, 0, err
 	}
 	for _, registryNodeAgentStatefulSet := range registryNodeAgentStatefulSets.Items {
 		nodeDeployed := registryNodeAgentStatefulSet.Labels["node"]
 		agentReady := true
 		if !slices.Contains(registry.Status.SelectedNodes, nodeDeployed) {
-			err = r.deleteUnusedResourcesByNode(ctx,
+			if err = r.deleteUnusedResourcesByNode(ctx,
 				*registry.Spec.Namespace,
 				&registryNodeAgentStatefulSet,
 				nodeDeployed,
-			)
-			if err != nil {
-				return ctrl.Result{}, err
+			); err != nil {
+				return false, 0, err
 			}
 		} else {
 			// Retrieve the status of StatefulSet
@@ -284,14 +298,7 @@ func (r *RegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 	}
 
-	// 8. Update the status.Available
-	registry.Status.Available = ptr.To(true)
-	registry.Status.Ready = ptr.To(ready)
-	registry.Status.AgentAvailable = ptr.To(nbAgentsAvailable == *registry.Status.Replicas)
-	registry.Status.AgentReady = ptr.To(nbAgentReady == *registry.Status.Replicas)
-	registry.Status.ReadyAgentReplicas = ptr.To(nbAgentReady)
-
-	return ctrl.Result{}, nil
+	return ready, nbAgentReady, nil
 }
 
 func (r *RegistryReconciler) deleteAllRegistryResources(ctx context.Context, namespace string) error {
