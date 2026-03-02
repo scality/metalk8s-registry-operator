@@ -110,42 +110,8 @@ func (r *RegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	nbAgentReady := 0
 
 	// 2. Add finalizer to deal with registry deletion
-	//
-	// examine DeletionTimestamp to determine if object is under deletion
-	if registry.DeletionTimestamp.IsZero() {
-		log.V(1).Info("instance is not being deleted")
-		// The object is not being deleted, so if it does not have our finalizer,
-		// then lets add the finalizer and update the object. This is equivalent
-		// to registering our finalizer.
-		if !controllerutil.ContainsFinalizer(registry, FINALIZER_NAME) {
-			log.V(1).Info("Adding finalizer to Registry")
-			controllerutil.AddFinalizer(registry, FINALIZER_NAME)
-			if err := r.Update(ctx, registry); err != nil {
-				return ctrl.Result{}, fmt.Errorf("error adding finalizer to Registry: %w", err)
-			}
-		}
-	} else {
-		// The object is being deleted
-		log.V(1).Info("Registry is being deleted")
-		if controllerutil.ContainsFinalizer(registry, FINALIZER_NAME) {
-			// our finalizer is present, so lets handle any external dependency
-			log.V(1).Info("deleting Registry resources")
-			if err := r.deleteAllRegistryResources(ctx, *registry.Spec.Namespace); err != nil {
-				// if fail to delete the external dependency here, return with error
-				// so that it can be retried.
-				return ctrl.Result{}, fmt.Errorf("error deleting Registry resources: %w", err)
-			}
-
-			// remove our finalizer from the list and update it.
-			log.V(1).Info("removing finalizer from Registry")
-			controllerutil.RemoveFinalizer(registry, FINALIZER_NAME)
-			if err := r.Update(ctx, registry); err != nil {
-				return ctrl.Result{}, fmt.Errorf("error removing finalizer from Registry: %w", err)
-			}
-		}
-
-		// Stop reconciliation as the item is being deleted
-		return ctrl.Result{}, nil
+	if err, stop := r.handleFinalizerAndDeletion(ctx, registry); stop {
+		return ctrl.Result{}, err
 	}
 
 	// 3. Change Namespace into Registry-Node-Agent manifest
@@ -292,6 +258,42 @@ func (r *RegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	registry.Status.ReadyAgentReplicas = ptr.To(nbAgentReady)
 
 	return ctrl.Result{}, nil
+}
+
+// handleFinalizerAndDeletion handles finalizer and deletion. Returns true if reconciliation should stop.
+func (r *RegistryReconciler) handleFinalizerAndDeletion(ctx context.Context, registry *metalk8sv1alpha1.Registry) (error, bool) {
+	// examine DeletionTimestamp to determine if object is under deletion
+	if registry.DeletionTimestamp.IsZero() {
+		// The object is not being deleted, so if it does not have our finalizer,
+		// then lets add the finalizer and update the object. This is equivalent
+		// to registering our finalizer.
+		if !controllerutil.ContainsFinalizer(registry, FINALIZER_NAME) {
+			controllerutil.AddFinalizer(registry, FINALIZER_NAME)
+			if err := r.Update(ctx, registry); err != nil {
+				return fmt.Errorf("error adding finalizer to Registry: %w", err), true
+			}
+		}
+		return nil, false
+	}
+
+	// The object is being deleted
+	if controllerutil.ContainsFinalizer(registry, FINALIZER_NAME) {
+		// our finalizer is present, so lets handle any external dependency
+		if err := r.deleteAllRegistryResources(ctx, *registry.Spec.Namespace); err != nil {
+			// if fail to delete the external dependency here, return with error
+			// so that it can be retried.
+			return fmt.Errorf("error deleting Registry resources: %w", err), true
+		}
+
+		// remove our finalizer from the list and update it.
+		controllerutil.RemoveFinalizer(registry, FINALIZER_NAME)
+		if err := r.Update(ctx, registry); err != nil {
+			return fmt.Errorf("error removing finalizer from Registry: %w", err), true
+		}
+	}
+
+	// Stop reconciliation as the item is being deleted
+	return nil, true
 }
 
 func (r *RegistryReconciler) deleteAllRegistryResources(ctx context.Context, namespace string) error {
