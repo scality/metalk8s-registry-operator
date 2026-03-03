@@ -24,7 +24,7 @@ import (
 
 type NodeSolutionArchiveStatus struct {
 	// True, when the NodeSolutionArchive is in Served status
-	Served bool `json:"served,omitempty"`
+	Served bool `json:"served"`
 }
 
 // SolutionArchiveStatus defines the observed state of SolutionArchive.
@@ -93,6 +93,9 @@ func (solutionArchive *SolutionArchive) InitStatus() {
 	if solutionArchive.Status.NodeSolutionArchives == nil {
 		solutionArchive.Status.NodeSolutionArchives = []string{}
 	}
+	if solutionArchive.Status.StatusPerNodeSolutionArchive == nil {
+		solutionArchive.Status.StatusPerNodeSolutionArchive = make(map[string]NodeSolutionArchiveStatus)
+	}
 }
 
 func (solutionArchive *SolutionArchive) ResetStatus() {
@@ -101,4 +104,5 @@ func (solutionArchive *SolutionArchive) ResetStatus() {
 	solutionArchive.Status.ServedReplicas = ptr.To(0)
 	solutionArchive.Status.TargetReplicas = ptr.To(0)
 	solutionArchive.Status.NodeSolutionArchives = []string{}
+	solutionArchive.Status.StatusPerNodeSolutionArchive = nil
 }

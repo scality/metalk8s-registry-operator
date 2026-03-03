@@ -194,6 +194,8 @@ spec:
                       description: True, when the NodeSolutionArchive is in Served
                         status
                       type: boolean
+                  required:
+                  - served
                   type: object
                 description: Status of each NodeSolutionArchive
                 type: object
