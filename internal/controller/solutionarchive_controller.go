@@ -182,8 +182,8 @@ func (r *SolutionArchiveReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 	solutionArchive.Status.StatusPerNodeSolutionArchive = statusPerNode
 	solutionArchive.Status.ServedReplicas = ptr.To(replicated)
-	solutionArchive.Status.Served = ptr.To(replicated > 0)
-	solutionArchive.Status.Replicated = ptr.To(replicated == targetReplicas)
+	solutionArchive.SetServed(replicated > 0)
+	solutionArchive.SetReplicated(replicated == targetReplicas)
 
 	return ctrl.Result{}, nil
 }
