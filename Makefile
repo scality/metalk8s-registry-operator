@@ -113,7 +113,11 @@ test: manifests generate fmt vet setup-envtest download-manifests ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out
 
 REGISTRY_NODE_AGENT := $(shell go list -f '{{.Version}}' -m github.com/scality/metalk8s-registry-node-agent)
-dist/registry-node-agent.yaml:
+FORCE:
+
+# A fake target file dist/registry-node-agent.yaml must exist to avoid lint errors
+# So need to force the target to always be rebuilt
+dist/registry-node-agent.yaml: FORCE
 	@mkdir -p $(@D)
 	@URL="https://api.github.com/repos/scality/metalk8s-registry-node-agent/releases/tags/$(REGISTRY_NODE_AGENT)" && \
 	BUNDLE_URL=$$(curl -sS -H "Authorization: token $$GIT_ACCESS_TOKEN" "$$URL" | jq -r '.assets[] | select(.name == "bundle.yaml") | .url') && \
