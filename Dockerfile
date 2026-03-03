@@ -18,6 +18,8 @@ RUN --mount=type=secret,id=GIT_AUTH_TOKEN \
 # Copy the go source
 COPY cmd/ cmd/
 COPY api/ api/
+COPY dist/ dist/
+COPY charts/ charts/
 COPY internal/ internal/
 
 # Build
@@ -34,7 +36,6 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o ma
 FROM gcr.io/distroless/static:nonroot
 WORKDIR /
 COPY --from=builder /workspace/manager .
-COPY dist/registry-node-agent.yaml /dist/registry-node-agent.yaml
 USER 65532:65532
 
 ENTRYPOINT ["/manager"]

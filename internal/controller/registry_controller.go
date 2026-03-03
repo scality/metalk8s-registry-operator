@@ -46,6 +46,7 @@ const (
 	FINALIZER_NAME      = "metalk8s.scality.com/finalizer"
 	REG_APP_LABEL_KEY   = "app.kubernetes.io/name"
 	RNA_APP_LABEL_VALUE = "metalk8s-registry-node-agent"
+	RS_APP_LABEL_VALUE  = "metalk8s-registry-server"
 )
 
 // RegistryReconciler reconciles a Registry object
@@ -53,6 +54,7 @@ type RegistryReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 	RNA    *utils.RegistryComponent
+	RS     *utils.RegistryComponent
 }
 
 // +kubebuilder:rbac:groups=metalk8s.scality.com,resources=registries,verbs=get;list;watch;create;update;patch;delete
@@ -106,8 +108,11 @@ func (r *RegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	// Initialize variable to track status
 	var agentReady bool
+	var serverReady bool
 	nbAgentsAvailable := 0
 	nbAgentReady := 0
+	nbServersAvailable := 0
+	nbServersReady := 0
 
 	// 2. Add finalizer to deal with registry deletion
 	if err, stop := r.handleFinalizerAndDeletion(ctx, registry); stop {
@@ -143,8 +148,11 @@ func (r *RegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		registry.SetAvailable(false)
 		registry.SetReady(false)
 		registry.Status.ReadyAgentReplicas = ptr.To(0)
+		registry.Status.ReadyServerReplicas = ptr.To(0)
 		registry.SetAgentAvailable(false)
 		registry.SetAgentReady(false)
+		registry.SetServerAvailable(false)
+		registry.SetServerReady(false)
 		registry.Status.StatusPerNode = make(map[string]metalk8sv1alpha1.NodeStatus)
 		if err := r.deleteAllRegistryResources(ctx, *registry.Spec.Namespace); err != nil {
 			return ctrl.Result{}, fmt.Errorf("error deleting Registry resources: %w", err)
@@ -153,7 +161,13 @@ func (r *RegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	// 6. Update the status.SelectedNodes with the list of matching nodes and deploy node-specific resources
-	nbAgentsAvailable, err = r.reconcilePerNodeResources(ctx, registry, matchingNodes)
+	nbServersAvailable, err = r.reconcileRSPerNodeResources(ctx, registry, matchingNodes)
+	if err != nil {
+		registry.SetAvailable(false)
+		registry.SetReady(false)
+		return ctrl.Result{}, err
+	}
+	nbAgentsAvailable, err = r.reconcileRNAPerNodeResources(ctx, registry, matchingNodes)
 	if err != nil {
 		registry.SetAvailable(false)
 		registry.SetReady(false)
@@ -165,13 +179,20 @@ func (r *RegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	if err != nil {
 		return ctrl.Result{}, err
 	}
+	serverReady, nbServersReady, err = r.cleanupUnusedRSResources(ctx, registry)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
 
 	// 8. Update the status.Available
 	registry.SetAvailable(true)
-	registry.SetReady(agentReady)
+	registry.SetReady(agentReady && serverReady)
 	registry.SetAgentAvailable(nbAgentsAvailable == *registry.Status.Replicas)
 	registry.SetAgentReady(nbAgentReady == *registry.Status.Replicas)
+	registry.SetServerAvailable(nbServersAvailable == *registry.Status.Replicas)
+	registry.SetServerReady(nbServersReady == *registry.Status.Replicas)
 	registry.Status.ReadyAgentReplicas = ptr.To(nbAgentReady)
+	registry.Status.ReadyServerReplicas = ptr.To(nbServersReady)
 
 	return ctrl.Result{}, nil
 }
@@ -236,7 +257,37 @@ func (r *RegistryReconciler) reconcileRNACoreResources(ctx context.Context, regi
 	return nil
 }
 
-func (r *RegistryReconciler) reconcilePerNodeResources(ctx context.Context, registry *metalk8sv1alpha1.Registry, matchingNodes *corev1.NodeList) (int, error) {
+func (r *RegistryReconciler) reconcileRSPerNodeResources(ctx context.Context, registry *metalk8sv1alpha1.Registry, matchingNodes *corev1.NodeList) (int, error) {
+	nbServersAvailable := 0
+
+	for _, node := range matchingNodes.Items {
+		// Determine NodeIP
+		nodeIP := ""
+		for _, address := range node.Status.Addresses {
+			if address.Type == corev1.NodeInternalIP {
+				nodeIP = address.Address
+				break
+			}
+		}
+
+		if err := r.ReconcileRSExternalServerCertificate(ctx, *registry.Spec.Namespace, node.Name, nodeIP, registry); err != nil {
+			return nbServersAvailable, fmt.Errorf("error deploying Registry Server external server certificate for node %s: %w", node.Name, err)
+		}
+		if err := r.ReconcileRSStatefulSet(ctx, *registry.Spec.Namespace, node.Name, registry); err != nil {
+			return nbServersAvailable, fmt.Errorf("error deploying Registry Server StatefulSet for node %s: %w", node.Name, err)
+		}
+
+		nodeStatus := registry.Status.StatusPerNode[node.Name]
+		nodeStatus.Server.Available = true
+		registry.Status.StatusPerNode[node.Name] = nodeStatus
+
+		nbServersAvailable++
+	}
+
+	return nbServersAvailable, nil
+}
+
+func (r *RegistryReconciler) reconcileRNAPerNodeResources(ctx context.Context, registry *metalk8sv1alpha1.Registry, matchingNodes *corev1.NodeList) (int, error) {
 	nbAgentsAvailable := 0
 
 	for _, node := range matchingNodes.Items {
@@ -317,6 +368,47 @@ func (r *RegistryReconciler) cleanupUnusedRNAResources(ctx context.Context, regi
 	return ready, nbAgentReady, nil
 }
 
+func (r *RegistryReconciler) cleanupUnusedRSResources(ctx context.Context, registry *metalk8sv1alpha1.Registry) (ready bool, nbServerReady int, err error) {
+	ready = true
+
+	registryServerStatefulSets := &appsv1.StatefulSetList{}
+	if err = r.List(ctx, registryServerStatefulSets,
+		client.InNamespace(*registry.Spec.Namespace),
+		client.MatchingLabels(map[string]string{REG_APP_LABEL_KEY: RS_APP_LABEL_VALUE}),
+	); err != nil {
+		return false, 0, err
+	}
+	for _, registryServerStatefulSet := range registryServerStatefulSets.Items {
+		nodeDeployed := registryServerStatefulSet.Labels["node"]
+		nodeStatus := registry.Status.StatusPerNode[nodeDeployed]
+		serverReady := true
+		if !slices.Contains(registry.Status.SelectedNodes, nodeDeployed) {
+			if err = r.deleteUnusedRSResourcesByNode(ctx,
+				*registry.Spec.Namespace,
+				&registryServerStatefulSet,
+				nodeDeployed,
+			); err != nil {
+				return false, 0, err
+			}
+			delete(registry.Status.StatusPerNode, nodeDeployed)
+		} else {
+			// Retrieve the status of StatefulSet
+			if registryServerStatefulSet.Status.AvailableReplicas != 1 {
+				ready = false // nolint:ineffassign // ready is initialized to true
+				serverReady = false
+				nodeStatus.Server.Ready = false
+			}
+			if serverReady {
+				nodeStatus.Server.Ready = true
+				nbServerReady++
+			}
+			registry.Status.StatusPerNode[nodeDeployed] = nodeStatus
+		}
+	}
+
+	return ready, nbServerReady, nil
+}
+
 func (r *RegistryReconciler) deleteAllRegistryResources(ctx context.Context, namespace string) error {
 	registryNodeAgentStatefulSets := &appsv1.StatefulSetList{}
 	err := r.List(ctx, registryNodeAgentStatefulSets,
@@ -332,6 +424,22 @@ func (r *RegistryReconciler) deleteAllRegistryResources(ctx context.Context, nam
 			return err
 		}
 	}
+
+	registryServerStatefulSets := &appsv1.StatefulSetList{}
+	err = r.List(ctx, registryServerStatefulSets,
+		client.InNamespace(namespace),
+		client.MatchingLabels(map[string]string{REG_APP_LABEL_KEY: RS_APP_LABEL_VALUE}))
+	if err != nil {
+		return err
+	}
+	for _, registryServerStatefulSet := range registryServerStatefulSets.Items {
+		nodeDeployed := registryServerStatefulSet.Labels["node"]
+		err = r.deleteUnusedRSResourcesByNode(ctx, namespace, &registryServerStatefulSet, nodeDeployed)
+		if err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -388,6 +496,31 @@ func (r *RegistryReconciler) deleteUnusedRNAResourcesByNode(ctx context.Context,
 		err = r.Delete(ctx, &certificate)
 		if err != nil {
 			return fmt.Errorf("error deleting Registry Node Agent Certificate: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func (r *RegistryReconciler) deleteUnusedRSResourcesByNode(ctx context.Context, namespace string, registryServerStatefulSet *appsv1.StatefulSet, nodeDeployed string) error {
+	err := r.Delete(ctx, registryServerStatefulSet)
+	if err != nil {
+		return fmt.Errorf("error deleting Registry Node Agent StatefulSet: %w", err)
+	}
+
+	// Delete the Certificates associated to the Node
+	certificates := &cmv1.CertificateList{}
+	err = r.List(ctx, certificates,
+		client.InNamespace(namespace),
+		client.MatchingLabels(map[string]string{REG_APP_LABEL_KEY: RS_APP_LABEL_VALUE, "node": nodeDeployed}),
+	)
+	if err != nil {
+		return fmt.Errorf("error listing Registry Server Certificates: %w", err)
+	}
+	for _, certificate := range certificates.Items {
+		err = r.Delete(ctx, &certificate)
+		if err != nil {
+			return fmt.Errorf("error deleting Registry Server Certificate: %w", err)
 		}
 	}
 

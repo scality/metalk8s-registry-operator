@@ -1,0 +1,75 @@
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  labels:
+    app.kubernetes.io/name: metalk8s-registry-server
+  name: metalk8s-registry-server
+  namespace: metalk8s-registry
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: metalk8s-registry-server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: metalk8s-registry-server
+    spec:
+      containers:
+      - name: registry-server
+        env:
+        - name: HTTP_ADDR
+          value: :5000
+        - name: FS_ROOT
+          value: /solutions
+        - name: LOG_LEVEL
+          value: info
+        - name: HTTP_TLS_CERT_FILE_PATH
+          value: /certs/server/external/tls.crt
+        - name: HTTP_TLS_KEY_FILE_PATH
+          value: /certs/server/external/tls.key
+        image: ghcr.io/scality/metalk8s-registry-server:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 5000
+          hostPort: 5000
+          name: http
+          protocol: TCP
+        livenessProbe:
+          httpGet:
+            path: /v2/
+            port: 5000
+            scheme: HTTPS
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        readinessProbe:
+          httpGet:
+            path: /v2/
+            port: 5000
+            scheme: HTTPS
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          limits:
+            cpu: 500m
+            memory: 2Gi
+          requests:
+            cpu: 10m
+            memory: 256Mi
+        volumeMounts:
+        - mountPath: /solutions
+          mountPropagation: HostToContainer
+          name: metalk8s-registry-server-solutions
+        - mountPath: /certs/server/external
+          name: tls-server-extern-certs
+          readOnly: true
+      volumes:
+      - hostPath:
+          path: /srv/scality/metalk8s/solutions
+          type: Directory
+        name: metalk8s-registry-server-solutions
+      - name: tls-server-extern-certs
+        secret:
+          defaultMode: 420
+          secretName: tls-server-extern-certs

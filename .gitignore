@@ -17,7 +17,9 @@ bin/
 coverage.*
 *.coverprofile
 profile.cov
-dist/
+# Ignore dist directory except for dist.go
+dist/*
+!dist/dist.go
 
 # Dependency directories (remove the comment below to include it)
 # vendor/

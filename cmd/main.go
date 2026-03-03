@@ -46,6 +46,8 @@ import (
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 
 	metalk8sv1alpha1 "github.com/scality/metalk8s-registry-operator/api/v1alpha1"
+	"github.com/scality/metalk8s-registry-operator/charts"
+	"github.com/scality/metalk8s-registry-operator/dist"
 	"github.com/scality/metalk8s-registry-operator/internal/controller"
 	"github.com/scality/metalk8s-registry-operator/internal/utils"
 	webhookv1alpha1 "github.com/scality/metalk8s-registry-operator/internal/webhook/v1alpha1"
@@ -227,9 +229,17 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Load registry-server manifests and store in a struct
+	registryServer := utils.NewRegistryComponent(ctx)
+	err = registryServer.LoadManifests(charts.RegistryServerManifests)
+	if err != nil {
+		setupLog.Error(err, "failed to load registry-server manifests")
+		os.Exit(1)
+	}
+
 	// Load registry-node-agent manifests and store in a struct
 	registryNodeAgent := utils.NewRegistryComponent(ctx)
-	err = registryNodeAgent.LoadManifestsFromFile("../dist/registry-node-agent.yaml")
+	err = registryNodeAgent.LoadManifests(dist.RegistryNodeAgentManifests)
 	if err != nil {
 		setupLog.Error(err, "failed to load registry-node-agent manifests")
 		os.Exit(1)
@@ -259,6 +269,7 @@ func main() {
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 		RNA:    registryNodeAgent,
+		RS:     registryServer,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Registry")
 		os.Exit(1)

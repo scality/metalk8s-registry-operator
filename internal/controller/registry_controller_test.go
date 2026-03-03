@@ -18,7 +18,7 @@ package controller
 
 import (
 	"context"
-	"path/filepath"
+	"os"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -126,8 +126,9 @@ var _ = Describe("Registry Controller", func() {
 		It("should successfully reconcile the resource", func() {
 			By("Reconciling the created resource")
 			registryNodeAgent := utils.NewRegistryComponent(ctx)
-			manifestPath := filepath.Join("..", "..", "dist", "registry-node-agent.yaml")
-			Expect(registryNodeAgent.LoadManifestsFromFile(manifestPath)).To(Succeed())
+			registryNodeAgentManifests, err := os.ReadFile("../../dist/registry-node-agent.yaml")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(registryNodeAgent.LoadManifests(registryNodeAgentManifests)).To(Succeed())
 
 			controllerReconciler := &RegistryReconciler{
 				Client: k8sClient,
@@ -135,7 +136,7 @@ var _ = Describe("Registry Controller", func() {
 				RNA:    registryNodeAgent,
 			}
 
-			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+			_, err = controllerReconciler.Reconcile(ctx, reconcile.Request{
 				NamespacedName: typeNamespacedName,
 			})
 			Expect(err).NotTo(HaveOccurred())
