@@ -19,7 +19,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-type RegistryNodeAgent struct {
+type RegistryComponent struct {
 	log                             logr.Logger
 	converter                       runtime.UnstructuredConverter
 	Namespaces                      []*corev1.Namespace
@@ -34,10 +34,10 @@ type RegistryNodeAgent struct {
 	UnstructuredObjects             []*unstructured.Unstructured
 }
 
-// NewRegistryNodeAgent creates a new RegistryNodeAgent
-func NewRegistryNodeAgent(ctx context.Context) *RegistryNodeAgent {
+// NewRegistryComponent creates a new RegistryComponent
+func NewRegistryComponent(ctx context.Context) *RegistryComponent {
 	log := logf.FromContext(ctx)
-	return &RegistryNodeAgent{
+	return &RegistryComponent{
 		log:                             log,
 		converter:                       runtime.DefaultUnstructuredConverter,
 		Namespaces:                      make([]*corev1.Namespace, 0),
@@ -53,8 +53,8 @@ func NewRegistryNodeAgent(ctx context.Context) *RegistryNodeAgent {
 	}
 }
 
-// LoadManifestsFromFile loads the manifests from the given filename into the RegistryNodeAgent
-func (r *RegistryNodeAgent) LoadManifestsFromFile(filename string) error {
+// LoadManifestsFromFile loads the manifests from the given filename into the RegistryComponent
+func (r *RegistryComponent) LoadManifestsFromFile(filename string) error {
 	manifests, err := os.ReadFile(filename)
 	if err != nil {
 		return err
@@ -131,7 +131,7 @@ func (r *RegistryNodeAgent) LoadManifestsFromFile(filename string) error {
 // T must be a pointer to a struct that implements the runtime.Object interface
 // We use a type parameter T that constrains to any type used as a pointer (*Kind)
 func processResource[T any, S []*T](
-	r *RegistryNodeAgent,
+	r *RegistryComponent,
 	kind string,
 	obj unstructured.Unstructured,
 	targetSlice *S,
@@ -151,8 +151,8 @@ func processResource[T any, S []*T](
 	*targetSlice = append(*targetSlice, &resource)
 }
 
-// Flush flushes the RegistryNodeAgent
-func (r *RegistryNodeAgent) Flush() {
+// Flush flushes the RegistryComponent
+func (r *RegistryComponent) Flush() {
 	r.ValidatingWebhookConfigurations = r.ValidatingWebhookConfigurations[:0]
 	r.UnstructuredObjects = r.UnstructuredObjects[:0]
 	r.Namespaces = r.Namespaces[:0]

@@ -228,7 +228,7 @@ func main() {
 	}
 
 	// Load registry-node-agent manifests and store in a struct
-	registryNodeAgent := utils.NewRegistryNodeAgent(ctx)
+	registryNodeAgent := utils.NewRegistryComponent(ctx)
 	err = registryNodeAgent.LoadManifestsFromFile("../dist/registry-node-agent.yaml")
 	if err != nil {
 		setupLog.Error(err, "failed to load registry-node-agent manifests")

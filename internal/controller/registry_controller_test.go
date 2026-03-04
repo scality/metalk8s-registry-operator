@@ -125,7 +125,7 @@ var _ = Describe("Registry Controller", func() {
 		})
 		It("should successfully reconcile the resource", func() {
 			By("Reconciling the created resource")
-			registryNodeAgent := utils.NewRegistryNodeAgent(ctx)
+			registryNodeAgent := utils.NewRegistryComponent(ctx)
 			manifestPath := filepath.Join("..", "..", "dist", "registry-node-agent.yaml")
 			Expect(registryNodeAgent.LoadManifestsFromFile(manifestPath)).To(Succeed())
 

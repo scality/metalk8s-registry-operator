@@ -44,7 +44,7 @@ import (
 
 const (
 	FINALIZER_NAME      = "metalk8s.scality.com/finalizer"
-	RNA_APP_LABEL_KEY   = "app.kubernetes.io/name"
+	REG_APP_LABEL_KEY   = "app.kubernetes.io/name"
 	RNA_APP_LABEL_VALUE = "metalk8s-registry-node-agent"
 )
 
@@ -52,7 +52,7 @@ const (
 type RegistryReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
-	RNA    *utils.RegistryNodeAgent
+	RNA    *utils.RegistryComponent
 }
 
 // +kubebuilder:rbac:groups=metalk8s.scality.com,resources=registries,verbs=get;list;watch;create;update;patch;delete
@@ -105,7 +105,7 @@ func (r *RegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}()
 
 	// Initialize variable to track status
-	var ready bool
+	var agentReady bool
 	nbAgentsAvailable := 0
 	nbAgentReady := 0
 
@@ -161,14 +161,14 @@ func (r *RegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	// 7. Clean unused StatefulSets and associated resources
-	ready, nbAgentReady, err = r.cleanupUnusedStatefulSetsAndAssociatedResources(ctx, registry)
+	agentReady, nbAgentReady, err = r.cleanupUnusedRNAResources(ctx, registry)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 
 	// 8. Update the status.Available
 	registry.SetAvailable(true)
-	registry.SetReady(ready)
+	registry.SetReady(agentReady)
 	registry.SetAgentAvailable(nbAgentsAvailable == *registry.Status.Replicas)
 	registry.SetAgentReady(nbAgentReady == *registry.Status.Replicas)
 	registry.Status.ReadyAgentReplicas = ptr.To(nbAgentReady)
@@ -276,13 +276,13 @@ func (r *RegistryReconciler) reconcilePerNodeResources(ctx context.Context, regi
 	return nbAgentsAvailable, nil
 }
 
-func (r *RegistryReconciler) cleanupUnusedStatefulSetsAndAssociatedResources(ctx context.Context, registry *metalk8sv1alpha1.Registry) (ready bool, nbAgentReady int, err error) {
+func (r *RegistryReconciler) cleanupUnusedRNAResources(ctx context.Context, registry *metalk8sv1alpha1.Registry) (ready bool, nbAgentReady int, err error) {
 	ready = true
 
 	registryNodeAgentStatefulSets := &appsv1.StatefulSetList{}
 	if err = r.List(ctx, registryNodeAgentStatefulSets,
 		client.InNamespace(*registry.Spec.Namespace),
-		client.MatchingLabels(map[string]string{RNA_APP_LABEL_KEY: RNA_APP_LABEL_VALUE}),
+		client.MatchingLabels(map[string]string{REG_APP_LABEL_KEY: RNA_APP_LABEL_VALUE}),
 	); err != nil {
 		return false, 0, err
 	}
@@ -291,7 +291,7 @@ func (r *RegistryReconciler) cleanupUnusedStatefulSetsAndAssociatedResources(ctx
 		nodeStatus := registry.Status.StatusPerNode[nodeDeployed]
 		agentReady := true
 		if !slices.Contains(registry.Status.SelectedNodes, nodeDeployed) {
-			if err = r.deleteUnusedResourcesByNode(ctx,
+			if err = r.deleteUnusedRNAResourcesByNode(ctx,
 				*registry.Spec.Namespace,
 				&registryNodeAgentStatefulSet,
 				nodeDeployed,
@@ -321,13 +321,13 @@ func (r *RegistryReconciler) deleteAllRegistryResources(ctx context.Context, nam
 	registryNodeAgentStatefulSets := &appsv1.StatefulSetList{}
 	err := r.List(ctx, registryNodeAgentStatefulSets,
 		client.InNamespace(namespace),
-		client.MatchingLabels(map[string]string{RNA_APP_LABEL_KEY: RNA_APP_LABEL_VALUE}))
+		client.MatchingLabels(map[string]string{REG_APP_LABEL_KEY: RNA_APP_LABEL_VALUE}))
 	if err != nil {
 		return err
 	}
 	for _, registryNodeAgentStatefulSet := range registryNodeAgentStatefulSets.Items {
 		nodeDeployed := registryNodeAgentStatefulSet.Labels["node"]
-		err = r.deleteUnusedResourcesByNode(ctx, namespace, &registryNodeAgentStatefulSet, nodeDeployed)
+		err = r.deleteUnusedRNAResourcesByNode(ctx, namespace, &registryNodeAgentStatefulSet, nodeDeployed)
 		if err != nil {
 			return err
 		}
@@ -335,7 +335,7 @@ func (r *RegistryReconciler) deleteAllRegistryResources(ctx context.Context, nam
 	return nil
 }
 
-func (r *RegistryReconciler) deleteUnusedResourcesByNode(ctx context.Context, namespace string, registryNodeAgentStatefulSet *appsv1.StatefulSet, nodeDeployed string) error {
+func (r *RegistryReconciler) deleteUnusedRNAResourcesByNode(ctx context.Context, namespace string, registryNodeAgentStatefulSet *appsv1.StatefulSet, nodeDeployed string) error {
 	err := r.Delete(ctx, registryNodeAgentStatefulSet)
 	if err != nil {
 		return fmt.Errorf("error deleting Registry Node Agent StatefulSet: %w", err)
@@ -343,7 +343,7 @@ func (r *RegistryReconciler) deleteUnusedResourcesByNode(ctx context.Context, na
 
 	// We need to ensure for NodeSolutionArchive full deletion (including files deletion on the node)
 	// before removing its finalizer
-	if controllerutil.ContainsFinalizer(registryNodeAgentStatefulSet, RNA_FINALIZER_NAME) {
+	if controllerutil.ContainsFinalizer(registryNodeAgentStatefulSet, FINALIZER_NAME) {
 		// our finalizer is present, so let's check if all associated NodeSolutionArchive have been deleted
 		nodeSolutionArchiveList := &nsav1alpha1.NodeSolutionArchiveList{}
 		if err := r.List(ctx, nodeSolutionArchiveList, client.MatchingLabels(map[string]string{"node": nodeDeployed})); err != nil {
@@ -353,7 +353,7 @@ func (r *RegistryReconciler) deleteUnusedResourcesByNode(ctx context.Context, na
 			return fmt.Errorf("remaining NodeSolutionArchives")
 		}
 		// remove our finalizer from the list and update it.
-		controllerutil.RemoveFinalizer(registryNodeAgentStatefulSet, RNA_FINALIZER_NAME)
+		controllerutil.RemoveFinalizer(registryNodeAgentStatefulSet, FINALIZER_NAME)
 		if err := r.Update(ctx, registryNodeAgentStatefulSet); err != nil {
 			return fmt.Errorf("error removing finalizer: %w", err)
 		}
@@ -363,7 +363,7 @@ func (r *RegistryReconciler) deleteUnusedResourcesByNode(ctx context.Context, na
 	services := &corev1.ServiceList{}
 	err = r.List(ctx, services,
 		client.InNamespace(namespace),
-		client.MatchingLabels(map[string]string{RNA_APP_LABEL_KEY: RNA_APP_LABEL_VALUE, "node": nodeDeployed}),
+		client.MatchingLabels(map[string]string{REG_APP_LABEL_KEY: RNA_APP_LABEL_VALUE, "node": nodeDeployed}),
 	)
 	if err != nil {
 		return fmt.Errorf("error listing Registry Node Agent Services: %w", err)
@@ -379,7 +379,7 @@ func (r *RegistryReconciler) deleteUnusedResourcesByNode(ctx context.Context, na
 	certificates := &cmv1.CertificateList{}
 	err = r.List(ctx, certificates,
 		client.InNamespace(namespace),
-		client.MatchingLabels(map[string]string{RNA_APP_LABEL_KEY: RNA_APP_LABEL_VALUE, "node": nodeDeployed}),
+		client.MatchingLabels(map[string]string{REG_APP_LABEL_KEY: RNA_APP_LABEL_VALUE, "node": nodeDeployed}),
 	)
 	if err != nil {
 		return fmt.Errorf("error listing Registry Node Agent Certificates: %w", err)
