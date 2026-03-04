@@ -23,6 +23,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/onsi/gomega/gstruct"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	corev1 "k8s.io/api/core/v1"
@@ -179,7 +180,24 @@ var _ = Describe("SolutionArchive Controller", func() {
 			Expect(createdResource.Status.TargetReplicas).To(HaveValue(Equal(0)))
 			Expect(createdResource.Status.StatusPerNodeSolutionArchive).To(BeEmpty())
 			Expect(createdResource.Status.NodeSolutionArchives).To(BeEmpty())
-			Expect(createdResource.Status.Conditions).To(BeEmpty())
+			Expect(createdResource.Status.Conditions).To(ContainElement(
+				gstruct.MatchFields(gstruct.IgnoreExtras, gstruct.Fields{
+					"Type":               Equal("Served"),
+					"Status":             Equal(metav1.ConditionFalse),
+					"ObservedGeneration": Equal(int64(1)),
+					"Reason":             Equal("ImagesNotServed"),
+					"Message":            Equal("The images are not served by the registry."),
+				}),
+			))
+			Expect(createdResource.Status.Conditions).To(ContainElement(
+				gstruct.MatchFields(gstruct.IgnoreExtras, gstruct.Fields{
+					"Type":               Equal("Replicated"),
+					"Status":             Equal(metav1.ConditionFalse),
+					"ObservedGeneration": Equal(int64(1)),
+					"Reason":             Equal("SolutionArchiveNotReplicated"),
+					"Message":            Equal("The solution archive has not been replicated to the nodes yet."),
+				}),
+			))
 		})
 	})
 
@@ -269,7 +287,24 @@ var _ = Describe("SolutionArchive Controller", func() {
 				"solution-2-1.2.0-node-1",
 				"solution-2-1.2.0-node-2",
 			))
-			Expect(createdResource.Status.Conditions).To(BeEmpty())
+			Expect(createdResource.Status.Conditions).To(ContainElement(
+				gstruct.MatchFields(gstruct.IgnoreExtras, gstruct.Fields{
+					"Type":               Equal("Served"),
+					"Status":             Equal(metav1.ConditionFalse),
+					"ObservedGeneration": Equal(int64(1)),
+					"Reason":             Equal("ImagesNotServed"),
+					"Message":            Equal("The images are not served by the registry."),
+				}),
+			))
+			Expect(createdResource.Status.Conditions).To(ContainElement(
+				gstruct.MatchFields(gstruct.IgnoreExtras, gstruct.Fields{
+					"Type":               Equal("Replicated"),
+					"Status":             Equal(metav1.ConditionFalse),
+					"ObservedGeneration": Equal(int64(1)),
+					"Reason":             Equal("SolutionArchiveNotReplicated"),
+					"Message":            Equal("The solution archive has not been replicated to the nodes yet."),
+				}),
+			))
 
 			By("deleting the nodes")
 			Expect(k8sClient.Delete(ctx, node1Resource)).To(Succeed())

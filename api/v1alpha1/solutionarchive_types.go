@@ -18,6 +18,7 @@ package v1alpha1
 
 import (
 	rnav1alpha1 "github.com/scality/metalk8s-registry-node-agent/api/v1alpha1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 )
@@ -99,10 +100,46 @@ func (solutionArchive *SolutionArchive) InitStatus() {
 }
 
 func (solutionArchive *SolutionArchive) ResetStatus() {
-	solutionArchive.Status.Served = ptr.To(false)
-	solutionArchive.Status.Replicated = ptr.To(false)
+	solutionArchive.SetServed(false)
+	solutionArchive.SetReplicated(false)
 	solutionArchive.Status.ServedReplicas = ptr.To(0)
 	solutionArchive.Status.TargetReplicas = ptr.To(0)
 	solutionArchive.Status.NodeSolutionArchives = []string{}
 	solutionArchive.Status.StatusPerNodeSolutionArchive = nil
+}
+
+func (solutionArchive *SolutionArchive) SetServed(served bool) {
+	condition := metav1.Condition{
+		Type:               "Served",
+		Status:             metav1.ConditionTrue,
+		LastTransitionTime: metav1.Now(),
+		Reason:             "ImagesServed",
+		Message:            "The images are served by the registry.",
+		ObservedGeneration: solutionArchive.Generation,
+	}
+	if !served {
+		condition.Status = metav1.ConditionFalse
+		condition.Reason = "ImagesNotServed"
+		condition.Message = "The images are not served by the registry."
+	}
+	meta.SetStatusCondition(&solutionArchive.Status.Conditions, condition)
+	solutionArchive.Status.Served = ptr.To(served)
+}
+
+func (solutionArchive *SolutionArchive) SetReplicated(replicated bool) {
+	condition := metav1.Condition{
+		Type:               "Replicated",
+		Status:             metav1.ConditionTrue,
+		LastTransitionTime: metav1.Now(),
+		Reason:             "SolutionArchiveReplicated",
+		Message:            "The solution archive has been replicated to the nodes.",
+		ObservedGeneration: solutionArchive.Generation,
+	}
+	if !replicated {
+		condition.Status = metav1.ConditionFalse
+		condition.Reason = "SolutionArchiveNotReplicated"
+		condition.Message = "The solution archive has not been replicated to the nodes yet."
+	}
+	meta.SetStatusCondition(&solutionArchive.Status.Conditions, condition)
+	solutionArchive.Status.Replicated = ptr.To(replicated)
 }
