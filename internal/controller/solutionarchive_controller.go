@@ -170,11 +170,17 @@ func (r *SolutionArchiveReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 
 	replicated := 0
+	statusPerNode := make(map[string]metalk8sv1alpha1.NodeSolutionArchiveStatus, len(nodeSolutionArchiveList.Items))
 	for _, nodeSolutionArchive := range nodeSolutionArchiveList.Items {
-		if nodeSolutionArchive.Status.Served != nil && *nodeSolutionArchive.Status.Served {
+		served := nodeSolutionArchive.Status.Served != nil && *nodeSolutionArchive.Status.Served
+		if served {
 			replicated++
 		}
+		statusPerNode[nodeSolutionArchive.Name] = metalk8sv1alpha1.NodeSolutionArchiveStatus{
+			Served: served,
+		}
 	}
+	solutionArchive.Status.StatusPerNodeSolutionArchive = statusPerNode
 	solutionArchive.Status.ServedReplicas = ptr.To(replicated)
 	solutionArchive.Status.Served = ptr.To(replicated > 0)
 	solutionArchive.Status.Replicated = ptr.To(replicated == targetReplicas)

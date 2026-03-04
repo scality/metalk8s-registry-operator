@@ -261,7 +261,10 @@ var _ = Describe("SolutionArchive Controller", func() {
 			Expect(createdResource.Status.Replicated).To(HaveValue(BeFalse()))
 			Expect(createdResource.Status.ServedReplicas).To(HaveValue(Equal(0)))
 			Expect(createdResource.Status.TargetReplicas).To(HaveValue(Equal(2)))
-			//			Expect(createdResource.Status.StatusPerNodeSolutionArchive).To(BeEmpty())
+			Expect(createdResource.Status.StatusPerNodeSolutionArchive).To(HaveKey("solution-2-1.2.0-node-1"))
+			Expect(createdResource.Status.StatusPerNodeSolutionArchive).To(HaveKey("solution-2-1.2.0-node-2"))
+			Expect(createdResource.Status.StatusPerNodeSolutionArchive["solution-2-1.2.0-node-1"].Served).To(BeFalse())
+			Expect(createdResource.Status.StatusPerNodeSolutionArchive["solution-2-1.2.0-node-2"].Served).To(BeFalse())
 			Expect(createdResource.Status.NodeSolutionArchives).To(ContainElements(
 				"solution-2-1.2.0-node-1",
 				"solution-2-1.2.0-node-2",
