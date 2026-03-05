@@ -448,6 +448,11 @@ func (r *RegistryReconciler) ReconcileRNAStatefulSet(ctx context.Context, regist
 	// Set Registry/Image:Tag
 	registryNodeAgentStatefulSet.setRNAImageTag(registry)
 
+	// Set ImagePullPolicy, if defined
+	if registry.Spec.Agent.Image.PullPolicy != nil {
+		registryNodeAgentStatefulSet.sts.Spec.Template.Spec.Containers[0].ImagePullPolicy = *registry.Spec.Agent.Image.PullPolicy
+	}
+
 	// Set Node label on Pod
 	registryNodeAgentStatefulSet.setNodeLabel(nodeName)
 
