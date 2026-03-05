@@ -112,6 +112,11 @@ var _ = Describe("Registry Controller", func() {
 							Name:       "metalk8s-registry-server",
 							Tag:        ptr.To("v1.0.0"),
 							PullPolicy: ptr.To(corev1.PullNever),
+							PullSecrets: []corev1.LocalObjectReference{
+								{
+									Name: "registry-pull-secret",
+								},
+							},
 						},
 					},
 					Agent: metalk8sv1alpha1.RegistryNodeAgentSpec{
@@ -129,6 +134,11 @@ var _ = Describe("Registry Controller", func() {
 							Name:       "metalk8s-registry-agent",
 							Tag:        ptr.To("v1.2.3"),
 							PullPolicy: ptr.To(corev1.PullAlways),
+							PullSecrets: []corev1.LocalObjectReference{
+								{
+									Name: "registry-pull-secret",
+								},
+							},
 						},
 					},
 				}
