@@ -111,7 +111,7 @@ var _ = Describe("Registry Controller", func() {
 							Registry:   "ghcr.io/scality",
 							Name:       "metalk8s-registry-server",
 							Tag:        ptr.To("v1.0.0"),
-							PullPolicy: ptr.To(corev1.PullIfNotPresent),
+							PullPolicy: ptr.To(corev1.PullNever),
 						},
 					},
 					Agent: metalk8sv1alpha1.RegistryNodeAgentSpec{
@@ -128,7 +128,7 @@ var _ = Describe("Registry Controller", func() {
 							Registry:   "ghcr.io/scality",
 							Name:       "metalk8s-registry-agent",
 							Tag:        ptr.To("v1.2.3"),
-							PullPolicy: ptr.To(corev1.PullIfNotPresent),
+							PullPolicy: ptr.To(corev1.PullAlways),
 						},
 					},
 				}
