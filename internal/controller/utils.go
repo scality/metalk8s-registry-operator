@@ -456,7 +456,7 @@ func (r *RegistryReconciler) ReconcileRNAStatefulSet(ctx context.Context, regist
 		return err
 	}
 
-	// Set Environment Variables (NODE_IP, LOGLEVEL)
+	// Set Environment Variables (DOWNLOAD_HOST, LOGLEVEL)
 	registryNodeAgentStatefulSet.setRNAEnvVariables(nodeName, registryNamespace, registry)
 
 	// examine DeletionTimestamp to determine if object is under deletion
@@ -712,15 +712,15 @@ func (cpt componentSts) setRNAEnvVariables(nodeName string, registryNamespace st
 		environmentMapping[env.Name] = id
 	}
 
-	// Change NODE_IP
-	nodeIP := corev1.EnvVar{
-		Name:  "NODE_IP",
+	// Change DOWNLOAD_HOST
+	downloadHost := corev1.EnvVar{
+		Name:  "DOWNLOAD_HOST",
 		Value: fmt.Sprintf("%s-%s.%s.svc", RNA_INTERNAL_SERVER_CERTIFICATE_CN, nodeName, registryNamespace),
 	}
-	if idx, exists := environmentMapping["NODE_IP"]; !exists {
-		cpt.sts.Spec.Template.Spec.Containers[0].Env = append(cpt.sts.Spec.Template.Spec.Containers[0].Env, nodeIP)
+	if idx, exists := environmentMapping["DOWNLOAD_HOST"]; !exists {
+		cpt.sts.Spec.Template.Spec.Containers[0].Env = append(cpt.sts.Spec.Template.Spec.Containers[0].Env, downloadHost)
 	} else {
-		cpt.sts.Spec.Template.Spec.Containers[0].Env[idx] = nodeIP
+		cpt.sts.Spec.Template.Spec.Containers[0].Env[idx] = downloadHost
 	}
 
 	// Change LOGGER_LOG_LEVEL
