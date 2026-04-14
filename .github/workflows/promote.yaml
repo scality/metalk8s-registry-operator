@@ -26,7 +26,7 @@ jobs:
           # annotations content is not fetched
           # See: https://github.com/actions/checkout/issues/882
           ref: ${{ github.ref }}
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           name: MetalK8s Registry Operator ${{ github.ref_name }}
           tag_name: ${{ github.ref_name }}
