@@ -334,8 +334,8 @@ func (r *RegistryReconciler) ChangeNamespace(ctx context.Context, namespace stri
 			if k == "cert-manager.io/inject-ca-from" {
 				newValue = strings.Replace(
 					v,
-					metalk8sv1alpha1.DEFAULT_NAMESPACE,
-					namespace,
+					metalk8sv1alpha1.DEFAULT_NAMESPACE+"/",
+					namespace+"/",
 					1,
 				)
 			}
@@ -438,9 +438,6 @@ func (r *RegistryReconciler) ReconcileRNAStatefulSet(ctx context.Context, regist
 
 	// Modify replica to 1
 	registryNodeAgentStatefulSet.sts.Spec.Replicas = ptr.To(int32(1))
-
-	// Modify Security Context
-	registryNodeAgentStatefulSet.setRNAPodSecurityContext()
 
 	// Set affinity to the specified node to ensure the StatefulSet is scheduled on the specified node
 	registryNodeAgentStatefulSet.setAffinity(nodeName)
@@ -633,7 +630,9 @@ func (r *RegistryReconciler) ReconcileRNAClientCertificate(ctx context.Context, 
 }
 
 func (cpt componentSts) setRNAImageTag(registry *metalk8sv1alpha1.Registry) {
-	cpt.sts.Spec.Template.Spec.Containers[0].Image = registry.Spec.Agent.Image.GetImage()
+	targetedImage := registry.Spec.Agent.Image.GetImage()
+	cpt.sts.Spec.Template.Spec.Containers[0].Image = targetedImage
+	cpt.sts.Spec.Template.Spec.InitContainers[0].Image = targetedImage
 }
 
 func (cpt componentSts) setRNAVolumes(registry *metalk8sv1alpha1.Registry, nodeName string) error {
@@ -742,18 +741,5 @@ func (cpt componentSts) setRNAEnvVariables(nodeName string, registryNamespace st
 		cpt.sts.Spec.Template.Spec.Containers[0].Env = append(cpt.sts.Spec.Template.Spec.Containers[0].Env, logLevel)
 	} else {
 		cpt.sts.Spec.Template.Spec.Containers[0].Env[idx] = logLevel
-	}
-}
-
-func (cpt componentSts) setRNAPodSecurityContext() {
-	cpt.sts.Spec.Template.Spec.SecurityContext = &corev1.PodSecurityContext{
-		FSGroup:      ptr.To(int64(0)),
-		RunAsGroup:   ptr.To(int64(0)),
-		RunAsNonRoot: ptr.To(false),
-		RunAsUser:    ptr.To(int64(0)),
-		SeccompProfile: &corev1.SeccompProfile{
-			Type: corev1.SeccompProfileTypeRuntimeDefault,
-		},
-		SupplementalGroups: []int64{6},
 	}
 }
