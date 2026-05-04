@@ -89,7 +89,7 @@ var _ = Describe("SolutionArchive Controller", func() {
 					Spec: rnav1alpha1.SolutionArchiveSpec{
 						Name:    "my-new-solution",
 						Version: "1.2.0",
-						Validation: rnav1alpha1.SolutionArchiveValidation{
+						Validation: &rnav1alpha1.SolutionArchiveValidation{
 							Checksum: rnav1alpha1.SolutionArchiveChecksum{
 								Type:  "sha256",
 								Value: "123abc",

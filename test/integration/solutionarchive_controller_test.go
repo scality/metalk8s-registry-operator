@@ -151,7 +151,7 @@ var _ = Describe("SolutionArchive Controller", func() {
 				resource.Spec = rnav1alpha1.SolutionArchiveSpec{
 					Name:    "solution-1",
 					Version: "1.2.0",
-					Validation: rnav1alpha1.SolutionArchiveValidation{
+					Validation: &rnav1alpha1.SolutionArchiveValidation{
 						Checksum: rnav1alpha1.SolutionArchiveChecksum{
 							Type:  "sha256",
 							Value: "ce775a33b30ae640d521df1fad60868fa701707ffdc4d8b4ca7ab60edfd05c26",
@@ -252,7 +252,7 @@ var _ = Describe("SolutionArchive Controller", func() {
 				resource.Spec = rnav1alpha1.SolutionArchiveSpec{
 					Name:    "solution-2",
 					Version: "1.2.0",
-					Validation: rnav1alpha1.SolutionArchiveValidation{
+					Validation: &rnav1alpha1.SolutionArchiveValidation{
 						Checksum: rnav1alpha1.SolutionArchiveChecksum{
 							Type:  "sha256",
 							Value: "ce775a33b30ae640d521df1fad60868fa701707ffdc4d8b4ca7ab60edfd05c26",
