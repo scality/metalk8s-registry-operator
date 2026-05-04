@@ -40,7 +40,7 @@ var _ = Describe("SolutionArchive Webhook", func() {
 			Spec: rnav1alpha1.SolutionArchiveSpec{
 				Name:    "test-solution",
 				Version: "1.0.0",
-				Validation: rnav1alpha1.SolutionArchiveValidation{
+				Validation: &rnav1alpha1.SolutionArchiveValidation{
 					Checksum: rnav1alpha1.SolutionArchiveChecksum{
 						Type:  "sha256",
 						Value: "123abc",

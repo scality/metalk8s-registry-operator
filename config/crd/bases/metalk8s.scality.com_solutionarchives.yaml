@@ -70,7 +70,8 @@ spec:
                 - message: Value is immutable
                   rule: self == oldSelf
               validation:
-                description: Validation details for the SolutionArchive
+                description: Validation details for the SolutionArchive (optional,
+                  but immutable)
                 properties:
                   checksum:
                     description: Checksum of the SolutionArchive
@@ -99,9 +100,6 @@ spec:
                 required:
                 - checksum
                 type: object
-                x-kubernetes-validations:
-                - message: Value is immutable
-                  rule: self == oldSelf
               version:
                 description: Version of the SolutionArchive
                 type: string
@@ -110,7 +108,6 @@ spec:
                   rule: self == oldSelf
             required:
             - name
-            - validation
             - version
             type: object
           status:

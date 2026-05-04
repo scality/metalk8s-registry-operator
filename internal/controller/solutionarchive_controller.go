@@ -136,7 +136,7 @@ func (r *SolutionArchiveReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 				SolutionArchiveSpec: nsav1alpha1.SolutionArchiveSpec{
 					Name:    solutionArchive.Spec.Name,
 					Version: solutionArchive.Spec.Version,
-					Validation: nsav1alpha1.SolutionArchiveValidation{
+					Validation: &nsav1alpha1.SolutionArchiveValidation{
 						Checksum: nsav1alpha1.SolutionArchiveChecksum{
 							Type:  solutionArchive.Spec.Validation.Checksum.Type,
 							Value: solutionArchive.Spec.Validation.Checksum.Value,

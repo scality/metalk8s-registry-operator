@@ -31,7 +31,7 @@ const (
 	RegistryServerImageTag         = "v1.0.0"
 	RegistryNodeAgentImageRegistry = "ghcr.io/scality"
 	RegistryNodeAgentImageName     = "metalk8s-registry-agent"
-	RegistryNodeAgentImageTag      = "v0.0.1-alpha.1"
+	RegistryNodeAgentImageTag      = "v0.0.1-alpha.9"
 	DEFAULT_NAMESPACE              = "metalk8s-registry"
 	DEFAULT_ARCHIVES_PATH          = "/srv/scality/metalk8s/archives"
 	DEFAULT_SOLUTIONS_PATH         = "/srv/scality/metalk8s/solutions"
