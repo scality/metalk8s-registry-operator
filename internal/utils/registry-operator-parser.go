@@ -1,10 +1,9 @@
 package utils
 
 import (
+	"bytes"
 	"context"
 	"io"
-	"os"
-	"strings"
 
 	cmv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	"github.com/go-logr/logr"
@@ -53,14 +52,9 @@ func NewRegistryComponent(ctx context.Context) *RegistryComponent {
 	}
 }
 
-// LoadManifestsFromFile loads the manifests from the given filename into the RegistryComponent
-func (r *RegistryComponent) LoadManifestsFromFile(filename string) error {
-	manifests, err := os.ReadFile(filename)
-	if err != nil {
-		return err
-	}
-	reader := strings.NewReader(string(manifests))
-	decoder := k8syaml.NewYAMLToJSONDecoder(reader)
+// LoadManifests loads the given manifests into the RegistryComponent
+func (r *RegistryComponent) LoadManifests(manifests []byte) error {
+	decoder := k8syaml.NewYAMLToJSONDecoder(bytes.NewReader(manifests))
 
 	r.log.V(1).Info("--- Decoding and Converting Kubernetes Manifests ---")
 	for {

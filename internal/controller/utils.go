@@ -34,12 +34,15 @@ const (
 	RNA_SELFSIGNED_ISSUER_NAME             = "metalk8s-registry-node-agent-selfsigned-issuer"
 	RNA_SELFSIGNED_ISSUER_KIND             = "Issuer"
 	RNA_STATEFULSET_PREFIX                 = "metalk8s-registry-node-agent"
+	RS_STATEFULSET_PREFIX                  = "metalk8s-registry-server"
 	RNA_INTERNAL_SERVER_CERTIFICATE_PREFIX = "rna-internal-server"
 	RNA_INTERNAL_SERVER_CERTIFICATE_CN     = "rna-internal-server"
 	RNA_EXTERNAL_SERVER_CERTIFICATE_PREFIX = "rna-external-server"
 	RNA_EXTERNAL_SERVER_CERTIFICATE_CN     = "rna-external-server"
 	RNA_INTERNAL_CLIENT_CERTIFICATE_PREFIX = "rna-internal-client"
 	RNA_EXTERNAL_CLIENT_CERTIFICATE_PREFIX = "rna-external-client"
+	RS_EXTERNAL_SERVER_CERTIFICATE_PREFIX  = "rs-external-server"
+	RS_EXTERNAL_SERVER_CERTIFICATE_CN      = "rs-external-server"
 	TLS_CLIENT_INTERNAL_CERTS_NAME         = "tls-client-intern-certs"
 	TLS_SERVER_INTERNAL_CERTS_NAME         = "tls-server-intern-certs"
 	TLS_SERVER_EXTERNAL_CERTS_NAME         = "tls-server-extern-certs"
@@ -742,4 +745,162 @@ func (cpt componentSts) setRNAEnvVariables(nodeName string, registryNamespace st
 	} else {
 		cpt.sts.Spec.Template.Spec.Containers[0].Env[idx] = logLevel
 	}
+}
+
+/*
+	Beyond this point, the functions are specific to one Registry Server instance on a Node:
+*/
+
+// ReconcileRSStatefulSet reconciles a Registry Server as a StatefulSet on the specified node
+func (r *RegistryReconciler) ReconcileRSStatefulSet(ctx context.Context, registryNamespace string, nodeName string, registry *metalk8sv1alpha1.Registry) error {
+	registryServerStatefulSet := componentSts{r.RS.StatefulSets[0].DeepCopy()}
+
+	// Check for existing StatefulSet on the node
+	registryServerStatefulSets := &appsv1.StatefulSetList{}
+	err := r.List(ctx, registryServerStatefulSets,
+		client.InNamespace(registryNamespace),
+		client.MatchingLabels(map[string]string{REG_APP_LABEL_KEY: RS_APP_LABEL_VALUE, "node": nodeName}),
+	)
+	if err != nil {
+		return err
+	}
+	if len(registryServerStatefulSets.Items) > 0 {
+		sts := &registryServerStatefulSets.Items[0]
+		utils.CleanResource(sts)
+		registryServerStatefulSet = componentSts{sts}
+	}
+
+	// Set metadata on StatefulSet
+	registryServerStatefulSet.sts.SetName(fmt.Sprintf("%s-%s", RS_STATEFULSET_PREFIX, nodeName))
+	registryServerStatefulSet.sts.SetNamespace(registryNamespace)
+	registryServerStatefulSet.sts.Labels["node"] = nodeName
+	if err := controllerutil.SetControllerReference(registry, registryServerStatefulSet.sts, r.Scheme); err != nil {
+		return err
+	}
+
+	// Set replica to 1
+	registryServerStatefulSet.sts.Spec.Replicas = ptr.To(int32(1))
+
+	// Set affinity to the specified node to ensure the StatefulSet is scheduled on the specified node
+	registryServerStatefulSet.setAffinity(nodeName)
+
+	// Set Registry/Image:Tag
+	registryServerStatefulSet.setRSImageTag(registry)
+
+	// Set ImagePullPolicy, if defined
+	if registry.Spec.Server.Image.PullPolicy != nil {
+		registryServerStatefulSet.sts.Spec.Template.Spec.Containers[0].ImagePullPolicy = *registry.Spec.Server.Image.PullPolicy
+	}
+
+	// Set ImagePullSecrets, if defined
+	if registry.Spec.Server.Image.PullSecrets != nil {
+		registryServerStatefulSet.sts.Spec.Template.Spec.ImagePullSecrets = registry.Spec.Server.Image.PullSecrets
+	}
+
+	// Set Node label on Pod
+	registryServerStatefulSet.setNodeLabel(nodeName)
+
+	// Set Volumes (solutions, TLS Certificate)
+	if err := registryServerStatefulSet.setRSVolumes(registry, nodeName); err != nil {
+		return err
+	}
+
+	// Set Environment Variables (LOGLEVEL)
+	registryServerStatefulSet.setRSEnvVariables(registry)
+
+	return r.Patch(ctx, registryServerStatefulSet.sts, client.Apply, client.ForceOwnership, client.FieldOwner(SSA_FIELD_OWNER_NAME))
+}
+
+// ReconcileRSExternalServerCertificate reconciles an external server certificate for the Registry Server
+func (r *RegistryReconciler) ReconcileRSExternalServerCertificate(ctx context.Context, registryNamespace string, nodeName string, nodeIP string, registry *metalk8sv1alpha1.Registry) error {
+	registryServerServerCertificate := &cmv1.Certificate{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("%s-%s", RS_EXTERNAL_SERVER_CERTIFICATE_PREFIX, nodeName),
+			Namespace: registryNamespace,
+		},
+	}
+
+	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, registryServerServerCertificate, func() error {
+		registryServerServerCertificate.SetLabels(map[string]string{
+			REG_APP_LABEL_KEY: RS_APP_LABEL_VALUE,
+			"node":            nodeName,
+		})
+		err := controllerutil.SetControllerReference(registry, registryServerServerCertificate, r.Scheme)
+		if err != nil {
+			return err
+		}
+		registryServerServerCertificate.Spec.SecretName = fmt.Sprintf("%s-%s", RS_EXTERNAL_SERVER_CERTIFICATE_PREFIX, nodeName)
+		registryServerServerCertificate.Spec.IssuerRef = cmmetav1.IssuerReference{
+			Name: registry.Spec.Server.CertificateIssuerRef.Name,
+			Kind: registry.Spec.Server.CertificateIssuerRef.Kind,
+		}
+		registryServerServerCertificate.Spec.CommonName = fmt.Sprintf("%s-%s", RS_EXTERNAL_SERVER_CERTIFICATE_CN, nodeName)
+		registryServerServerCertificate.Spec.IPAddresses = []string{
+			nodeIP,
+		}
+		registryServerServerCertificate.Spec.Usages = []cmv1.KeyUsage{
+			cmv1.UsageKeyEncipherment,
+			cmv1.UsageDigitalSignature,
+			cmv1.UsageServerAuth,
+		}
+		return nil
+	})
+	return err
+}
+
+func (cpt componentSts) setRSImageTag(registry *metalk8sv1alpha1.Registry) {
+	cpt.sts.Spec.Template.Spec.Containers[0].Image = registry.Spec.Server.Image.GetImage()
+}
+
+func (cpt componentSts) setRSEnvVariables(registry *metalk8sv1alpha1.Registry) {
+	environmentMapping := make(map[string]int)
+	for id, env := range cpt.sts.Spec.Template.Spec.Containers[0].Env {
+		environmentMapping[env.Name] = id
+	}
+
+	// Change LOG_LEVEL
+	logLevel := corev1.EnvVar{
+		Name:  "LOG_LEVEL",
+		Value: *registry.Spec.LogLevel,
+	}
+	if idx, exists := environmentMapping["LOG_LEVEL"]; !exists {
+		cpt.sts.Spec.Template.Spec.Containers[0].Env = append(cpt.sts.Spec.Template.Spec.Containers[0].Env, logLevel)
+	} else {
+		cpt.sts.Spec.Template.Spec.Containers[0].Env[idx] = logLevel
+	}
+}
+
+func (cpt componentSts) setRSVolumes(registry *metalk8sv1alpha1.Registry, nodeName string) error {
+	volumesMapping := make(map[string]int)
+	for id, volume := range cpt.sts.Spec.Template.Spec.Volumes {
+		volumesMapping[volume.Name] = id
+	}
+
+	var idVol int
+	var exists bool
+
+	// metalk8s-registry-server-solutions: where the solutions are present to be served
+	idVol, exists = volumesMapping["metalk8s-registry-server-solutions"]
+	if !exists {
+		return fmt.Errorf("volume metalk8s-registry-server-solutions not found")
+	}
+	cpt.sts.Spec.Template.Spec.Volumes[idVol].VolumeSource = corev1.VolumeSource{
+		HostPath: &corev1.HostPathVolumeSource{
+			Path: *registry.Spec.SolutionsPath,
+			Type: ptr.To(corev1.HostPathDirectory),
+		},
+	}
+
+	// External Server TLS Certificate
+	idVol, exists = volumesMapping[TLS_SERVER_EXTERNAL_CERTS_NAME]
+	if !exists {
+		return fmt.Errorf("volume %s not found", TLS_SERVER_EXTERNAL_CERTS_NAME)
+	}
+	cpt.sts.Spec.Template.Spec.Volumes[idVol].VolumeSource = corev1.VolumeSource{
+		Secret: &corev1.SecretVolumeSource{
+			SecretName: fmt.Sprintf("%s-%s", RS_EXTERNAL_SERVER_CERTIFICATE_PREFIX, nodeName),
+		},
+	}
+
+	return nil
 }

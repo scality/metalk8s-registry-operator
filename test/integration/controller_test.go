@@ -51,6 +51,7 @@ var (
 	cfg               *rest.Config
 	k8sClient         client.Client
 	registryNodeAgent *utils.RegistryComponent
+	registryServer    *utils.RegistryComponent
 )
 
 func TestControllers(t *testing.T) {
@@ -115,10 +116,12 @@ var _ = BeforeSuite(func() {
 	Expect(err).ToNot(HaveOccurred())
 
 	registryNodeAgent = utils.NewRegistryComponent(ctx)
+	registryServer = utils.NewRegistryComponent(ctx)
 	err = (&controller.RegistryReconciler{
 		Client: k8sManager.GetClient(),
 		Scheme: k8sClient.Scheme(),
 		RNA:    registryNodeAgent,
+		RS:     registryServer,
 	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 

@@ -18,7 +18,7 @@ package k8s
 
 import (
 	"context"
-	"path/filepath"
+	"os"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -48,11 +48,17 @@ var _ = Describe("Registry Controller", func() {
 
 	BeforeEach(func() {
 		By("Loading the registry node agent manifests")
-		manifestPath := filepath.Join("..", "..", "dist", "registry-node-agent.yaml")
-		Expect(registryNodeAgent.LoadManifestsFromFile(manifestPath)).To(Succeed())
+		registryNodeAgentManifests, err := os.ReadFile("../../dist/registry-node-agent.yaml")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(registryNodeAgent.LoadManifests(registryNodeAgentManifests)).To(Succeed())
 		// We flush ValidatingWebhookConfigurations because in envtest there is no webhook server,
 		// so the API server call times out and status is never updated.
 		registryNodeAgent.ValidatingWebhookConfigurations = registryNodeAgent.ValidatingWebhookConfigurations[:0]
+
+		By("Loading the registry server agent manifests")
+		registryServerManifests, err := os.ReadFile("../../charts/registry-server.yaml")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(registryServer.LoadManifests(registryServerManifests)).To(Succeed())
 
 		By("creating the namespace and CA secret required by the Registry")
 		ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: secretNamespace}}
