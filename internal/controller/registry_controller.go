@@ -277,6 +277,9 @@ func (r *RegistryReconciler) reconcileRSPerNodeResources(ctx context.Context, re
 			return nbServersAvailable, fmt.Errorf("error deploying Registry Server StatefulSet for node %s: %w", node.Name, err)
 		}
 
+		if registry.Status.StatusPerNode == nil {
+			registry.Status.StatusPerNode = make(map[string]metalk8sv1alpha1.NodeStatus)
+		}
 		nodeStatus := registry.Status.StatusPerNode[node.Name]
 		nodeStatus.Server.Available = true
 		registry.Status.StatusPerNode[node.Name] = nodeStatus
@@ -317,6 +320,9 @@ func (r *RegistryReconciler) reconcileRNAPerNodeResources(ctx context.Context, r
 			return nbAgentsAvailable, fmt.Errorf("error deploying Registry Node Agent client certificate for node %s: %w", node.Name, err)
 		}
 
+		if registry.Status.StatusPerNode == nil {
+			registry.Status.StatusPerNode = make(map[string]metalk8sv1alpha1.NodeStatus)
+		}
 		nodeStatus := registry.Status.StatusPerNode[node.Name]
 		nodeStatus.Agent.Available = true
 		registry.Status.StatusPerNode[node.Name] = nodeStatus
