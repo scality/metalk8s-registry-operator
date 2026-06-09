@@ -165,6 +165,9 @@ func (r *RegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		if err := r.deleteAllRegistryResources(ctx, *registry.Spec.Namespace); err != nil {
 			return ctrl.Result{}, fmt.Errorf("error deleting Registry resources: %w", err)
 		}
+		if err := r.reconcileContainerdMirrorConfigMap(ctx, *registry.Spec.Namespace, registry, clusterIP, nil); err != nil {
+			return ctrl.Result{}, fmt.Errorf("error reconciling containerd mirror ConfigMap: %w", err)
+		}
 		return ctrl.Result{}, nil
 	}
 
@@ -190,6 +193,13 @@ func (r *RegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	serverReady, nbServersReady, err = r.cleanupUnusedRSResources(ctx, registry)
 	if err != nil {
 		return ctrl.Result{}, err
+	}
+
+	// Reconcile the containerd mirror ConfigMap from the selected nodes.
+	if err := r.reconcileContainerdMirrorConfigMap(ctx, *registry.Spec.Namespace, registry, clusterIP, matchingNodes.Items); err != nil {
+		registry.SetAvailable(false)
+		registry.SetReady(false)
+		return ctrl.Result{}, fmt.Errorf("error reconciling containerd mirror ConfigMap: %w", err)
 	}
 
 	// 8. Update the status.Available
@@ -597,6 +607,7 @@ func (r *RegistryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&cmv1.Certificate{}).
 		Owns(&cmv1.Issuer{}).
 		Owns(&corev1.Secret{}).
+		Owns(&corev1.ConfigMap{}).
 		Owns(&rbacv1.Role{}).
 		Owns(&rbacv1.ClusterRole{}).
 		Owns(&rbacv1.RoleBinding{}).

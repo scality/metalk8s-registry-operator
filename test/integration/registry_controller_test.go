@@ -496,7 +496,11 @@ var _ = Describe("Registry Controller", func() {
 			By("checking the registry server ClusterIP Service")
 			rsService := &corev1.Service{}
 			Eventually(func(g Gomega) {
-				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "metalk8s-registry-server", Namespace: "namespace-test-2"}, rsService)).To(Succeed())
+				g.Expect(k8sClient.Get(
+					ctx,
+					types.NamespacedName{Name: "metalk8s-registry-server", Namespace: "namespace-test-2"},
+					rsService,
+				)).To(Succeed())
 				g.Expect(rsService.Spec.Type).To(Equal(corev1.ServiceTypeClusterIP))
 				g.Expect(rsService.Spec.ClusterIP).NotTo(BeEmpty())
 			}, timeout, interval).Should(Succeed())
@@ -504,7 +508,11 @@ var _ = Describe("Registry Controller", func() {
 			By("checking the registry server cert SANs include the node IP, the ClusterIP and the Service DNS names")
 			rsCert := &cmv1.Certificate{}
 			Eventually(func(g Gomega) {
-				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "rs-external-server-node-3", Namespace: "namespace-test-2"}, rsCert)).To(Succeed())
+				g.Expect(k8sClient.Get(
+					ctx,
+					types.NamespacedName{Name: "rs-external-server-node-3", Namespace: "namespace-test-2"},
+					rsCert,
+				)).To(Succeed())
 				g.Expect(rsCert.Spec.IPAddresses).To(ContainElements("10.0.0.3", rsService.Spec.ClusterIP))
 				g.Expect(rsCert.Spec.DNSNames).To(ContainElements(
 					"metalk8s-registry-server",
@@ -512,6 +520,21 @@ var _ = Describe("Registry Controller", func() {
 					"metalk8s-registry-server.namespace-test-2.svc",
 					"metalk8s-registry-server.namespace-test-2.svc.cluster.local",
 				))
+			}, timeout, interval).Should(Succeed())
+
+			By("checking the generated containerd mirror ConfigMap")
+			mirrorCM := &corev1.ConfigMap{}
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{
+					Name:      "metalk8s-registry-containerd-mirror",
+					Namespace: "namespace-test-2",
+				}, mirrorCM)).To(Succeed())
+				g.Expect(mirrorCM.Annotations).To(HaveKeyWithValue("registry.metalk8s.scality.com/certs-d-subdir", "_default"))
+				g.Expect(mirrorCM.OwnerReferences).NotTo(BeEmpty())
+				hosts := mirrorCM.Data["hosts.toml"]
+				g.Expect(hosts).To(HavePrefix("[host.\"https://" + rsService.Spec.ClusterIP + ":5000\"]"))
+				g.Expect(hosts).To(ContainSubstring("[host.\"https://10.0.0.3:5000\"]"))
+				g.Expect(hosts).To(ContainSubstring("[host.\"https://10.0.0.4:5000\"]"))
 			}, timeout, interval).Should(Succeed())
 
 			By("deleting the custom resource for the Kind Registry")
@@ -697,6 +720,11 @@ var _ = Describe("Registry Controller", func() {
 			Expect(k8sClient.Create(ctx, node7Resource)).To(Succeed())
 			Expect(k8sClient.Create(ctx, node8Resource)).To(Succeed())
 
+			node7Resource.Status.Addresses = []corev1.NodeAddress{{Type: corev1.NodeInternalIP, Address: "10.0.0.7"}}
+			node8Resource.Status.Addresses = []corev1.NodeAddress{{Type: corev1.NodeInternalIP, Address: "10.0.0.8"}}
+			Expect(k8sClient.Status().Update(ctx, node7Resource)).To(Succeed())
+			Expect(k8sClient.Status().Update(ctx, node8Resource)).To(Succeed())
+
 			DeferCleanup(func() {
 				_ = k8sClient.Delete(ctx, node7Resource)
 				_ = k8sClient.Delete(ctx, node8Resource)
@@ -875,6 +903,18 @@ var _ = Describe("Registry Controller", func() {
 			Expect(createdResource.Status.StatusPerNode).To(HaveKey("node-7"))
 			Expect(createdResource.Status.StatusPerNode).To(Not(HaveKey("node-8")))
 			Expect(createdResource.Status.StatusPerNode["node-7"].Agent.Available).To(BeTrue())
+
+			By("checking the containerd mirror ConfigMap dropped the removed node's host")
+			mirrorCM := &corev1.ConfigMap{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{
+				Name:      "metalk8s-registry-containerd-mirror",
+				Namespace: "namespace-test-4",
+			}, mirrorCM)).To(Succeed())
+			hosts := mirrorCM.Data["hosts.toml"]
+			Expect(hosts).To(ContainSubstring("[host.\"https://10.0.0.7:5000\"]"))
+			// Match the full host entry: the ClusterIP randomly assigned by the API
+			// server (e.g. 10.0.0.85) could contain "10.0.0.8" as a substring.
+			Expect(hosts).NotTo(ContainSubstring("[host.\"https://10.0.0.8:5000\"]"))
 
 			By("deleting the custom resource for the Kind Registry")
 			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
@@ -1103,6 +1143,171 @@ var _ = Describe("Registry Controller", func() {
 
 			// Wait for all reconciliations loop to be done
 			time.Sleep(1 * time.Second)
+		})
+	})
+
+	Context("When reconciling the containerd mirror ConfigMap with a server CA", func() {
+		It("includes ca.crt and deletes the ConfigMap when mirrorPropagation is disabled", func() {
+			resourceName := "test-mirror-ca"
+			namespace := "namespace-mirror-ca"
+			cmName := "metalk8s-registry-containerd-mirror"
+
+			node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{
+				Name:   "ca-node-a",
+				Labels: map[string]string{"registry": "mirror-ca"},
+			}}
+			Expect(k8sClient.Create(ctx, node)).To(Succeed())
+			node.Status.Addresses = []corev1.NodeAddress{{Type: corev1.NodeInternalIP, Address: "10.0.2.1"}}
+			Expect(k8sClient.Status().Update(ctx, node)).To(Succeed())
+			DeferCleanup(func() { _ = k8sClient.Delete(ctx, node) })
+
+			Expect(k8sClient.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}})).To(Succeed())
+			caSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: "rs-external-server-ca-node-a", Namespace: namespace},
+				Data:       map[string][]byte{"ca.crt": []byte("dummy-server-ca")},
+			}
+			Expect(k8sClient.Create(ctx, caSecret)).To(Succeed())
+
+			resource := &metalk8sv1alpha1.Registry{ObjectMeta: metav1.ObjectMeta{Name: resourceName}}
+			_, err := controllerutil.CreateOrUpdate(ctx, k8sClient, resource, func() error {
+				resource.Spec = metalk8sv1alpha1.RegistrySpec{
+					LogLevel:      ptr.To("info"),
+					ArchivesPath:  ptr.To("/srv/scality/metalk8s/archives"),
+					SolutionsPath: ptr.To("/srv/scality/metalk8s/solutions"),
+					Namespace:     ptr.To(namespace),
+					NodeSelector:  map[string]string{"registry": "mirror-ca"},
+					Server: metalk8sv1alpha1.RegistryServerSpec{
+						CertificateIssuerRef: cmmetav1.ObjectReference{
+							Name: "registry-server-issuer",
+							Kind: "ClusterIssuer",
+						},
+						Image: &metalk8sv1alpha1.ImageSpec{
+							Registry: "ghcr.io/scality",
+							Name:     "metalk8s-registry-server",
+							Tag:      ptr.To("v1.0.0"),
+						},
+					},
+					Agent: metalk8sv1alpha1.RegistryNodeAgentSpec{
+						Authentication: metalk8sv1alpha1.AuthenticationSpec{
+							MTLS: metalk8sv1alpha1.MTLSAuthenticationSpec{
+								CASecretRef: corev1.SecretReference{
+									Name:      "registry-agent-mtls-ca",
+									Namespace: secretNamespace,
+								},
+							},
+						},
+						Image: &metalk8sv1alpha1.ImageSpec{
+							Registry: "ghcr.io/scality",
+							Name:     "metalk8s-registry-agent",
+							Tag:      ptr.To("v1.2.3"),
+						},
+					},
+				}
+				return nil
+			})
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(func() { _ = k8sClient.Delete(ctx, resource) })
+
+			By("waiting for the node IPs in status")
+			createdResource := &metalk8sv1alpha1.Registry{}
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: resourceName}, createdResource)).To(Succeed())
+				g.Expect(createdResource.Status.NodeIPs).To(ConsistOf("10.0.2.1"))
+			}, timeout, interval).Should(Succeed())
+
+			By("checking ca.crt is present in the ConfigMap")
+			cm := &corev1.ConfigMap{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: cmName, Namespace: namespace}, cm)).To(Succeed())
+			Expect(cm.Data).To(HaveKeyWithValue("ca.crt", "dummy-server-ca"))
+
+			By("disabling mirrorPropagation deletes the ConfigMap")
+			updatedResource := &metalk8sv1alpha1.Registry{}
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: resourceName}, updatedResource)).To(Succeed())
+				updatedResource.Spec.MirrorPropagation = &metalk8sv1alpha1.MirrorPropagationSpec{Enabled: false}
+				g.Expect(k8sClient.Update(ctx, updatedResource)).To(Succeed())
+			}, timeout, interval).Should(Succeed())
+			// Sync on the conditions observing the new generation: the ConfigMap
+			// deletion happens before the status is patched.
+			Eventually(func(g Gomega) {
+				current := &metalk8sv1alpha1.Registry{}
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: resourceName}, current)).To(Succeed())
+				g.Expect(current.Status.Conditions).To(ContainElement(
+					gstruct.MatchFields(gstruct.IgnoreExtras, gstruct.Fields{
+						"Type":               Equal("Available"),
+						"ObservedGeneration": Equal(updatedResource.Generation),
+					}),
+				))
+			}, timeout, interval).Should(Succeed())
+			err = k8sClient.Get(ctx, types.NamespacedName{Name: cmName, Namespace: namespace}, &corev1.ConfigMap{})
+			Expect(errors.IsNotFound(err)).To(BeTrue())
+		})
+	})
+
+	Context("When reconciling the containerd mirror ConfigMap with no selected nodes", func() {
+		It("keeps only the ClusterIP host", func() {
+			resourceName := "test-mirror-no-nodes"
+			namespace := "namespace-mirror-nonodes"
+			cmName := "metalk8s-registry-containerd-mirror"
+
+			resource := &metalk8sv1alpha1.Registry{ObjectMeta: metav1.ObjectMeta{Name: resourceName}}
+			_, err := controllerutil.CreateOrUpdate(ctx, k8sClient, resource, func() error {
+				resource.Spec = metalk8sv1alpha1.RegistrySpec{
+					LogLevel:      ptr.To("info"),
+					ArchivesPath:  ptr.To("/srv/scality/metalk8s/archives"),
+					SolutionsPath: ptr.To("/srv/scality/metalk8s/solutions"),
+					Namespace:     ptr.To(namespace),
+					NodeSelector:  map[string]string{"registry": "mirror-none"},
+					Server: metalk8sv1alpha1.RegistryServerSpec{
+						CertificateIssuerRef: cmmetav1.ObjectReference{
+							Name: "registry-server-issuer",
+							Kind: "ClusterIssuer",
+						},
+						Image: &metalk8sv1alpha1.ImageSpec{
+							Registry: "ghcr.io/scality",
+							Name:     "metalk8s-registry-server",
+							Tag:      ptr.To("v1.0.0"),
+						},
+					},
+					Agent: metalk8sv1alpha1.RegistryNodeAgentSpec{
+						Authentication: metalk8sv1alpha1.AuthenticationSpec{
+							MTLS: metalk8sv1alpha1.MTLSAuthenticationSpec{
+								CASecretRef: corev1.SecretReference{
+									Name:      "registry-agent-mtls-ca",
+									Namespace: secretNamespace,
+								},
+							},
+						},
+						Image: &metalk8sv1alpha1.ImageSpec{
+							Registry: "ghcr.io/scality",
+							Name:     "metalk8s-registry-agent",
+							Tag:      ptr.To("v1.2.3"),
+						},
+					},
+				}
+				return nil
+			})
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(func() { _ = k8sClient.Delete(ctx, resource) })
+
+			rsService := &corev1.Service{}
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(
+					ctx,
+					types.NamespacedName{Name: "metalk8s-registry-server", Namespace: namespace},
+					rsService,
+				)).To(Succeed())
+				g.Expect(rsService.Spec.ClusterIP).NotTo(BeEmpty())
+			}, timeout, interval).Should(Succeed())
+
+			expectedHosts := "[host.\"https://" + rsService.Spec.ClusterIP + ":5000\"]\n" +
+				"  capabilities = [\"pull\", \"resolve\"]\n" +
+				"  ca = \"ca.crt\"\n"
+			cm := &corev1.ConfigMap{}
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: cmName, Namespace: namespace}, cm)).To(Succeed())
+				g.Expect(cm.Data["hosts.toml"]).To(Equal(expectedHosts))
+			}, timeout, interval).Should(Succeed())
 		})
 	})
 })

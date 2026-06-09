@@ -3,6 +3,7 @@ package controller
 import (
 	"fmt"
 	"hash/fnv"
+	"slices"
 
 	"context"
 	"strings"
@@ -16,7 +17,9 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -27,6 +30,11 @@ import (
 const (
 	ORGANIZATION_NAME                      = "metalk8s"
 	SSA_FIELD_OWNER_NAME                   = "registry-operator"
+	CONTAINERD_MIRROR_CONFIGMAP_NAME       = "metalk8s-registry-containerd-mirror"
+	CERTS_D_SUBDIR_ANNOTATION              = "registry.metalk8s.scality.com/certs-d-subdir"
+	CERTS_D_SUBDIR_VALUE                   = "_default"
+	MIRROR_HOSTS_TOML_KEY                  = "hosts.toml"
+	MIRROR_CA_KEY                          = "ca.crt"
 	RNA_CA_NAME                            = "metalk8s-registry-node-agent-ca"
 	RNA_CA_SECRET_NAME                     = "rna-ca-cert"
 	RNA_CA_ISSUER_NAME                     = "metalk8s-registry-node-agent-ca-issuer"
@@ -953,4 +961,85 @@ func (cpt componentSts) setRSVolumes(registry *metalk8sv1alpha1.Registry, nodeNa
 	}
 
 	return nil
+}
+
+// getNodeInternalIP returns the node's InternalIP, or "" if none is set.
+func getNodeInternalIP(node *corev1.Node) string {
+	for _, address := range node.Status.Addresses {
+		if address.Type == corev1.NodeInternalIP {
+			return address.Address
+		}
+	}
+	return ""
+}
+
+// getRegistryServerCA returns the Registry Server CA (ca.crt) read from the first
+// available external server certificate secret. All per-node certs share the same
+// issuer/CA. Returns "" when none is available yet.
+func (r *RegistryReconciler) getRegistryServerCA(ctx context.Context, registryNamespace string, nodes []corev1.Node) string {
+	for i := range nodes {
+		secret := &corev1.Secret{}
+		if err := r.Get(ctx, types.NamespacedName{
+			Name:      fmt.Sprintf("%s-%s", RS_EXTERNAL_SERVER_CERTIFICATE_PREFIX, nodes[i].Name),
+			Namespace: registryNamespace,
+		}, secret); err != nil {
+			if !apierrors.IsNotFound(err) {
+				logf.FromContext(ctx).Error(err, "failed to read registry server CA secret", "node", nodes[i].Name)
+			}
+			continue
+		}
+		if ca, ok := secret.Data["ca.crt"]; ok && len(ca) > 0 {
+			return string(ca)
+		}
+	}
+	return ""
+}
+
+// reconcileContainerdMirrorConfigMap creates/updates (or deletes when disabled) the
+// containerd mirror ConfigMap (_default/hosts.toml + ca.crt). The host list is the
+// ClusterIP first, then each selected node IP sorted.
+func (r *RegistryReconciler) reconcileContainerdMirrorConfigMap(ctx context.Context, registryNamespace string, registry *metalk8sv1alpha1.Registry, clusterIP string, nodes []corev1.Node) error {
+	configMap := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      CONTAINERD_MIRROR_CONFIGMAP_NAME,
+			Namespace: registryNamespace,
+		},
+	}
+
+	if !registry.IsMirrorPropagationEnabled() {
+		if err := r.Delete(ctx, configMap); err != nil && !apierrors.IsNotFound(err) {
+			return fmt.Errorf("error deleting containerd mirror ConfigMap: %w", err)
+		}
+		return nil
+	}
+
+	mirrorHosts := []string{fmt.Sprintf("https://%s:%d", clusterIP, RS_HOST_PORT)}
+	nodeHosts := []string{}
+	for i := range nodes {
+		if ip := getNodeInternalIP(&nodes[i]); ip != "" {
+			nodeHosts = append(nodeHosts, fmt.Sprintf("https://%s:%d", ip, RS_HOST_PORT))
+		}
+	}
+	slices.Sort(nodeHosts)
+	mirrorHosts = append(mirrorHosts, nodeHosts...)
+
+	caCrt := r.getRegistryServerCA(ctx, registryNamespace, nodes)
+
+	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, configMap, func() error {
+		if err := controllerutil.SetControllerReference(registry, configMap, r.Scheme); err != nil {
+			return err
+		}
+		configMap.SetAnnotations(map[string]string{
+			CERTS_D_SUBDIR_ANNOTATION: CERTS_D_SUBDIR_VALUE,
+		})
+		data := map[string]string{
+			MIRROR_HOSTS_TOML_KEY: utils.GenerateContainerdHostsToml(mirrorHosts),
+		}
+		if caCrt != "" {
+			data[MIRROR_CA_KEY] = caCrt
+		}
+		configMap.Data = data
+		return nil
+	})
+	return err
 }
