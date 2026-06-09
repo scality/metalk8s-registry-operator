@@ -56,7 +56,7 @@ const (
 	TLS_SERVER_EXTERNAL_CERTS_NAME         = "tls-server-extern-certs"
 	TLS_CLIENT_EXTERNAL_CERTS_NAME         = "tls-client-extern-certs"
 	RS_SERVICE_NAME                        = "metalk8s-registry-server"
-	RS_HOST_PORT                           = 5000
+	RS_SERVER_PORT                         = 5000
 )
 
 // getHash32Name returns a 32-bit hash of the input string - hexadecimal representation
@@ -762,7 +762,7 @@ func (cpt componentSts) setRNAEnvVariables(nodeName string, registryNamespace st
 */
 
 // ReconcileRSStatefulSet reconciles a Registry Server as a StatefulSet on the specified node
-func (r *RegistryReconciler) ReconcileRSStatefulSet(ctx context.Context, registryNamespace string, nodeName string, registry *metalk8sv1alpha1.Registry) error {
+func (r *RegistryReconciler) ReconcileRSStatefulSet(ctx context.Context, registryNamespace string, nodeName string, nodeIP string, registry *metalk8sv1alpha1.Registry) error {
 	registryServerStatefulSet := componentSts{r.RS.StatefulSets[0].DeepCopy()}
 
 	// Check for existing StatefulSet on the node
@@ -815,8 +815,8 @@ func (r *RegistryReconciler) ReconcileRSStatefulSet(ctx context.Context, registr
 		return err
 	}
 
-	// Set Environment Variables (LOGLEVEL)
-	registryServerStatefulSet.setRSEnvVariables(registry)
+	// Set Environment Variables (LOGLEVEL, HTTP_ADDR)
+	registryServerStatefulSet.setRSEnvVariables(registry, nodeIP)
 
 	return r.Patch(ctx, registryServerStatefulSet.sts, client.Apply, client.ForceOwnership, client.FieldOwner(SSA_FIELD_OWNER_NAME))
 }
@@ -890,9 +890,9 @@ func (r *RegistryReconciler) ReconcileRSService(ctx context.Context, registryNam
 		registryServerService.Spec.Ports = []corev1.ServicePort{
 			{
 				Name:       "https",
-				Port:       RS_HOST_PORT,
+				Port:       RS_SERVER_PORT,
 				Protocol:   corev1.ProtocolTCP,
-				TargetPort: intstr.FromInt32(RS_HOST_PORT),
+				TargetPort: intstr.FromInt32(RS_SERVER_PORT),
 			},
 		}
 		return nil
@@ -910,7 +910,7 @@ func (cpt componentSts) setRSImageTag(registry *metalk8sv1alpha1.Registry) {
 	cpt.sts.Spec.Template.Spec.Containers[0].Image = registry.Spec.Server.Image.GetImage()
 }
 
-func (cpt componentSts) setRSEnvVariables(registry *metalk8sv1alpha1.Registry) {
+func (cpt componentSts) setRSEnvVariables(registry *metalk8sv1alpha1.Registry, nodeIP string) {
 	environmentMapping := make(map[string]int)
 	for id, env := range cpt.sts.Spec.Template.Spec.Containers[0].Env {
 		environmentMapping[env.Name] = id
@@ -925,6 +925,17 @@ func (cpt componentSts) setRSEnvVariables(registry *metalk8sv1alpha1.Registry) {
 		cpt.sts.Spec.Template.Spec.Containers[0].Env = append(cpt.sts.Spec.Template.Spec.Containers[0].Env, logLevel)
 	} else {
 		cpt.sts.Spec.Template.Spec.Containers[0].Env[idx] = logLevel
+	}
+
+	// Bind the server to the node's InternalIP only
+	httpAddr := corev1.EnvVar{
+		Name:  "HTTP_ADDR",
+		Value: fmt.Sprintf("%s:%d", nodeIP, RS_SERVER_PORT),
+	}
+	if idx, exists := environmentMapping["HTTP_ADDR"]; !exists {
+		cpt.sts.Spec.Template.Spec.Containers[0].Env = append(cpt.sts.Spec.Template.Spec.Containers[0].Env, httpAddr)
+	} else {
+		cpt.sts.Spec.Template.Spec.Containers[0].Env[idx] = httpAddr
 	}
 }
 
@@ -1026,9 +1037,9 @@ func (r *RegistryReconciler) reconcileContainerdMirrorConfigMap(ctx context.Cont
 		return nil
 	}
 
-	mirrorHosts := []string{fmt.Sprintf("https://%s:%d", clusterIP, RS_HOST_PORT)}
+	mirrorHosts := []string{fmt.Sprintf("https://%s:%d", clusterIP, RS_SERVER_PORT)}
 	for _, ip := range getSortedNodeInternalIPs(nodes) {
-		mirrorHosts = append(mirrorHosts, fmt.Sprintf("https://%s:%d", ip, RS_HOST_PORT))
+		mirrorHosts = append(mirrorHosts, fmt.Sprintf("https://%s:%d", ip, RS_SERVER_PORT))
 	}
 
 	caCrt := r.getRegistryServerCA(ctx, registryNamespace, nodes)

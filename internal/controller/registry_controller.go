@@ -281,19 +281,17 @@ func (r *RegistryReconciler) reconcileRSPerNodeResources(ctx context.Context, re
 	nbServersAvailable := 0
 
 	for _, node := range matchingNodes.Items {
-		// Determine NodeIP
-		nodeIP := ""
-		for _, address := range node.Status.Addresses {
-			if address.Type == corev1.NodeInternalIP {
-				nodeIP = address.Address
-				break
-			}
+		nodeIP := getNodeInternalIP(&node)
+		if nodeIP == "" {
+			// Without an InternalIP the server cannot bind to it nor be reached
+			logf.FromContext(ctx).Info("skipping Registry Server resources for node without InternalIP", "node", node.Name)
+			continue
 		}
 
 		if err := r.ReconcileRSExternalServerCertificate(ctx, *registry.Spec.Namespace, node.Name, nodeIP, clusterIP, registry); err != nil {
 			return nbServersAvailable, fmt.Errorf("error deploying Registry Server external server certificate for node %s: %w", node.Name, err)
 		}
-		if err := r.ReconcileRSStatefulSet(ctx, *registry.Spec.Namespace, node.Name, registry); err != nil {
+		if err := r.ReconcileRSStatefulSet(ctx, *registry.Spec.Namespace, node.Name, nodeIP, registry); err != nil {
 			return nbServersAvailable, fmt.Errorf("error deploying Registry Server StatefulSet for node %s: %w", node.Name, err)
 		}
 

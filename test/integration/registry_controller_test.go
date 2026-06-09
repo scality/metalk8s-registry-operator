@@ -493,57 +493,62 @@ var _ = Describe("Registry Controller", func() {
 				return err == nil
 			}, timeout, interval).Should(BeTrue())
 
+			By("waiting for the registry reachability IPs in status")
+			updatedResource := &metalk8sv1alpha1.Registry{}
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, typeNamespacedName, updatedResource)).To(Succeed())
+				g.Expect(updatedResource.Status.ClusterIP).NotTo(BeEmpty())
+				g.Expect(updatedResource.Status.NodeIPs).To(ConsistOf("10.0.0.3", "10.0.0.4"))
+			}, timeout, interval).Should(Succeed())
+
 			By("checking the registry server ClusterIP Service")
 			rsService := &corev1.Service{}
-			Eventually(func(g Gomega) {
-				g.Expect(k8sClient.Get(
-					ctx,
-					types.NamespacedName{Name: "metalk8s-registry-server", Namespace: "namespace-test-2"},
-					rsService,
-				)).To(Succeed())
-				g.Expect(rsService.Spec.Type).To(Equal(corev1.ServiceTypeClusterIP))
-				g.Expect(rsService.Spec.ClusterIP).NotTo(BeEmpty())
-			}, timeout, interval).Should(Succeed())
+			Expect(k8sClient.Get(
+				ctx,
+				types.NamespacedName{Name: "metalk8s-registry-server", Namespace: "namespace-test-2"},
+				rsService,
+			)).To(Succeed())
+			Expect(rsService.Spec.Type).To(Equal(corev1.ServiceTypeClusterIP))
+			Expect(rsService.Spec.ClusterIP).To(Equal(updatedResource.Status.ClusterIP))
 
 			By("checking the registry server cert SANs include the node IP, the ClusterIP and the Service DNS names")
 			rsCert := &cmv1.Certificate{}
-			Eventually(func(g Gomega) {
-				g.Expect(k8sClient.Get(
-					ctx,
-					types.NamespacedName{Name: "rs-external-server-node-3", Namespace: "namespace-test-2"},
-					rsCert,
-				)).To(Succeed())
-				g.Expect(rsCert.Spec.IPAddresses).To(ContainElements("10.0.0.3", rsService.Spec.ClusterIP))
-				g.Expect(rsCert.Spec.DNSNames).To(ContainElements(
-					"metalk8s-registry-server",
-					"metalk8s-registry-server.namespace-test-2",
-					"metalk8s-registry-server.namespace-test-2.svc",
-					"metalk8s-registry-server.namespace-test-2.svc.cluster.local",
-				))
-			}, timeout, interval).Should(Succeed())
+			Expect(k8sClient.Get(
+				ctx,
+				types.NamespacedName{Name: "rs-external-server-node-3", Namespace: "namespace-test-2"},
+				rsCert,
+			)).To(Succeed())
+			Expect(rsCert.Spec.IPAddresses).To(ContainElements("10.0.0.3", rsService.Spec.ClusterIP))
+			Expect(rsCert.Spec.DNSNames).To(ContainElements(
+				"metalk8s-registry-server",
+				"metalk8s-registry-server.namespace-test-2",
+				"metalk8s-registry-server.namespace-test-2.svc",
+				"metalk8s-registry-server.namespace-test-2.svc.cluster.local",
+			))
 
 			By("checking the generated containerd mirror ConfigMap")
 			mirrorCM := &corev1.ConfigMap{}
-			Eventually(func(g Gomega) {
-				g.Expect(k8sClient.Get(ctx, types.NamespacedName{
-					Name:      "metalk8s-registry-containerd-mirror",
-					Namespace: "namespace-test-2",
-				}, mirrorCM)).To(Succeed())
-				g.Expect(mirrorCM.Annotations).To(HaveKeyWithValue("registry.metalk8s.scality.com/certs-d-subdir", "_default"))
-				g.Expect(mirrorCM.OwnerReferences).NotTo(BeEmpty())
-				hosts := mirrorCM.Data["hosts.toml"]
-				g.Expect(hosts).To(HavePrefix("[host.\"https://" + rsService.Spec.ClusterIP + ":5000\"]"))
-				g.Expect(hosts).To(ContainSubstring("[host.\"https://10.0.0.3:5000\"]"))
-				g.Expect(hosts).To(ContainSubstring("[host.\"https://10.0.0.4:5000\"]"))
-			}, timeout, interval).Should(Succeed())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{
+				Name:      "metalk8s-registry-containerd-mirror",
+				Namespace: "namespace-test-2",
+			}, mirrorCM)).To(Succeed())
+			Expect(mirrorCM.Annotations).To(HaveKeyWithValue("registry.metalk8s.scality.com/certs-d-subdir", "_default"))
+			Expect(mirrorCM.OwnerReferences).NotTo(BeEmpty())
+			hosts := mirrorCM.Data["hosts.toml"]
+			Expect(hosts).To(HavePrefix("[host.\"https://" + rsService.Spec.ClusterIP + ":5000\"]"))
+			Expect(hosts).To(ContainSubstring("[host.\"https://10.0.0.3:5000\"]"))
+			Expect(hosts).To(ContainSubstring("[host.\"https://10.0.0.4:5000\"]"))
 
-			By("checking the registry reachability IPs in status")
-			Eventually(func(g Gomega) {
-				updated := &metalk8sv1alpha1.Registry{}
-				g.Expect(k8sClient.Get(ctx, typeNamespacedName, updated)).To(Succeed())
-				g.Expect(updated.Status.ClusterIP).To(Equal(rsService.Spec.ClusterIP))
-				g.Expect(updated.Status.NodeIPs).To(ConsistOf("10.0.0.3", "10.0.0.4"))
-			}, timeout, interval).Should(Succeed())
+			By("checking the registry server StatefulSet uses host networking and binds to the node IP")
+			rsStatefulSet := &appsv1.StatefulSet{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{
+				Name:      "metalk8s-registry-server-node-3",
+				Namespace: "namespace-test-2",
+			}, rsStatefulSet)).To(Succeed())
+			Expect(rsStatefulSet.Spec.Template.Spec.HostNetwork).To(BeTrue())
+			Expect(rsStatefulSet.Spec.Template.Spec.Containers[0].Env).To(
+				ContainElement(corev1.EnvVar{Name: "HTTP_ADDR", Value: "10.0.0.3:5000"}),
+			)
 
 			By("deleting the custom resource for the Kind Registry")
 			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
