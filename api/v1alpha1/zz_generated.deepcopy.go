@@ -354,6 +354,11 @@ func (in *RegistryStatus) DeepCopyInto(out *RegistryStatus) {
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}
+	if in.NodeIPs != nil {
+		in, out := &in.NodeIPs, &out.NodeIPs
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
 	if in.StatusPerNode != nil {
 		in, out := &in.StatusPerNode, &out.StatusPerNode
 		*out = make(map[string]NodeStatus, len(*in))

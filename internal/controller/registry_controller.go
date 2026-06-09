@@ -140,6 +140,7 @@ func (r *RegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		registry.SetReady(false)
 		return ctrl.Result{}, fmt.Errorf("error reconciling Registry Server Service: %w", err)
 	}
+	registry.Status.ClusterIP = clusterIP
 
 	// 5. List all nodes matching the nodeSelector
 	matchingNodes := &corev1.NodeList{}
@@ -149,6 +150,7 @@ func (r *RegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 	registry.Status.SelectedNodes = make([]string, 0, len(matchingNodes.Items))
 	registry.Status.Replicas = ptr.To(len(matchingNodes.Items))
+	registry.Status.NodeIPs = getSortedNodeInternalIPs(matchingNodes.Items)
 	if len(matchingNodes.Items) == 0 {
 		// If no matching nodes, ignore the reconcile, but update the status
 		// As we watch the nodes, next time the labels will change on Nodes, it will reconcile

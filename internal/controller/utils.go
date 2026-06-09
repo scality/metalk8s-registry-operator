@@ -973,6 +973,19 @@ func getNodeInternalIP(node *corev1.Node) string {
 	return ""
 }
 
+// getSortedNodeInternalIPs returns the sorted InternalIPs of the given nodes,
+// skipping nodes without one.
+func getSortedNodeInternalIPs(nodes []corev1.Node) []string {
+	ips := []string{}
+	for i := range nodes {
+		if ip := getNodeInternalIP(&nodes[i]); ip != "" {
+			ips = append(ips, ip)
+		}
+	}
+	slices.Sort(ips)
+	return ips
+}
+
 // getRegistryServerCA returns the Registry Server CA (ca.crt) read from the first
 // available external server certificate secret. All per-node certs share the same
 // issuer/CA. Returns "" when none is available yet.
@@ -1014,14 +1027,9 @@ func (r *RegistryReconciler) reconcileContainerdMirrorConfigMap(ctx context.Cont
 	}
 
 	mirrorHosts := []string{fmt.Sprintf("https://%s:%d", clusterIP, RS_HOST_PORT)}
-	nodeHosts := []string{}
-	for i := range nodes {
-		if ip := getNodeInternalIP(&nodes[i]); ip != "" {
-			nodeHosts = append(nodeHosts, fmt.Sprintf("https://%s:%d", ip, RS_HOST_PORT))
-		}
+	for _, ip := range getSortedNodeInternalIPs(nodes) {
+		mirrorHosts = append(mirrorHosts, fmt.Sprintf("https://%s:%d", ip, RS_HOST_PORT))
 	}
-	slices.Sort(nodeHosts)
-	mirrorHosts = append(mirrorHosts, nodeHosts...)
 
 	caCrt := r.getRegistryServerCA(ctx, registryNamespace, nodes)
 

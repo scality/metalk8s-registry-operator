@@ -537,6 +537,14 @@ var _ = Describe("Registry Controller", func() {
 				g.Expect(hosts).To(ContainSubstring("[host.\"https://10.0.0.4:5000\"]"))
 			}, timeout, interval).Should(Succeed())
 
+			By("checking the registry reachability IPs in status")
+			Eventually(func(g Gomega) {
+				updated := &metalk8sv1alpha1.Registry{}
+				g.Expect(k8sClient.Get(ctx, typeNamespacedName, updated)).To(Succeed())
+				g.Expect(updated.Status.ClusterIP).To(Equal(rsService.Spec.ClusterIP))
+				g.Expect(updated.Status.NodeIPs).To(ConsistOf("10.0.0.3", "10.0.0.4"))
+			}, timeout, interval).Should(Succeed())
+
 			By("deleting the custom resource for the Kind Registry")
 			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
 
@@ -1290,24 +1298,30 @@ var _ = Describe("Registry Controller", func() {
 			Expect(err).NotTo(HaveOccurred())
 			DeferCleanup(func() { _ = k8sClient.Delete(ctx, resource) })
 
-			rsService := &corev1.Service{}
+			By("waiting for the ClusterIP in status")
+			createdResource := &metalk8sv1alpha1.Registry{}
 			Eventually(func(g Gomega) {
-				g.Expect(k8sClient.Get(
-					ctx,
-					types.NamespacedName{Name: "metalk8s-registry-server", Namespace: namespace},
-					rsService,
-				)).To(Succeed())
-				g.Expect(rsService.Spec.ClusterIP).NotTo(BeEmpty())
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: resourceName}, createdResource)).To(Succeed())
+				g.Expect(createdResource.Status.ClusterIP).NotTo(BeEmpty())
 			}, timeout, interval).Should(Succeed())
+			Expect(createdResource.Status.NodeIPs).To(BeEmpty())
 
-			expectedHosts := "[host.\"https://" + rsService.Spec.ClusterIP + ":5000\"]\n" +
+			By("checking the registry server Service matches the status ClusterIP")
+			rsService := &corev1.Service{}
+			Expect(k8sClient.Get(
+				ctx,
+				types.NamespacedName{Name: "metalk8s-registry-server", Namespace: namespace},
+				rsService,
+			)).To(Succeed())
+			Expect(rsService.Spec.ClusterIP).To(Equal(createdResource.Status.ClusterIP))
+
+			By("checking the ConfigMap only contains the ClusterIP host")
+			expectedHosts := "[host.\"https://" + createdResource.Status.ClusterIP + ":5000\"]\n" +
 				"  capabilities = [\"pull\", \"resolve\"]\n" +
 				"  ca = \"ca.crt\"\n"
 			cm := &corev1.ConfigMap{}
-			Eventually(func(g Gomega) {
-				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: cmName, Namespace: namespace}, cm)).To(Succeed())
-				g.Expect(cm.Data["hosts.toml"]).To(Equal(expectedHosts))
-			}, timeout, interval).Should(Succeed())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: cmName, Namespace: namespace}, cm)).To(Succeed())
+			Expect(cm.Data["hosts.toml"]).To(Equal(expectedHosts))
 		})
 	})
 })
