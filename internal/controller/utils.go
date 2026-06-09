@@ -47,6 +47,8 @@ const (
 	TLS_SERVER_INTERNAL_CERTS_NAME         = "tls-server-intern-certs"
 	TLS_SERVER_EXTERNAL_CERTS_NAME         = "tls-server-extern-certs"
 	TLS_CLIENT_EXTERNAL_CERTS_NAME         = "tls-client-extern-certs"
+	RS_SERVICE_NAME                        = "metalk8s-registry-server"
+	RS_HOST_PORT                           = 5000
 )
 
 // getHash32Name returns a 32-bit hash of the input string - hexadecimal representation
@@ -812,7 +814,7 @@ func (r *RegistryReconciler) ReconcileRSStatefulSet(ctx context.Context, registr
 }
 
 // ReconcileRSExternalServerCertificate reconciles an external server certificate for the Registry Server
-func (r *RegistryReconciler) ReconcileRSExternalServerCertificate(ctx context.Context, registryNamespace string, nodeName string, nodeIP string, registry *metalk8sv1alpha1.Registry) error {
+func (r *RegistryReconciler) ReconcileRSExternalServerCertificate(ctx context.Context, registryNamespace string, nodeName string, nodeIP string, clusterIP string, registry *metalk8sv1alpha1.Registry) error {
 	registryServerServerCertificate := &cmv1.Certificate{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      fmt.Sprintf("%s-%s", RS_EXTERNAL_SERVER_CERTIFICATE_PREFIX, nodeName),
@@ -837,6 +839,13 @@ func (r *RegistryReconciler) ReconcileRSExternalServerCertificate(ctx context.Co
 		registryServerServerCertificate.Spec.CommonName = fmt.Sprintf("%s-%s", RS_EXTERNAL_SERVER_CERTIFICATE_CN, nodeName)
 		registryServerServerCertificate.Spec.IPAddresses = []string{
 			nodeIP,
+			clusterIP,
+		}
+		registryServerServerCertificate.Spec.DNSNames = []string{
+			RS_SERVICE_NAME,
+			fmt.Sprintf("%s.%s", RS_SERVICE_NAME, registryNamespace),
+			fmt.Sprintf("%s.%s.svc", RS_SERVICE_NAME, registryNamespace),
+			fmt.Sprintf("%s.%s.svc.cluster.local", RS_SERVICE_NAME, registryNamespace),
 		}
 		registryServerServerCertificate.Spec.Usages = []cmv1.KeyUsage{
 			cmv1.UsageKeyEncipherment,
@@ -846,6 +855,47 @@ func (r *RegistryReconciler) ReconcileRSExternalServerCertificate(ctx context.Co
 		return nil
 	})
 	return err
+}
+
+// ReconcileRSService reconciles a ClusterIP Service fronting the Registry Server
+// pods. kube-proxy load-balances pulls across all replicas. It returns the
+// allocated ClusterIP, which is added to the Registry Server certificate SANs.
+func (r *RegistryReconciler) ReconcileRSService(ctx context.Context, registryNamespace string, registry *metalk8sv1alpha1.Registry) (string, error) {
+	registryServerService := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      RS_SERVICE_NAME,
+			Namespace: registryNamespace,
+		},
+	}
+
+	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, registryServerService, func() error {
+		registryServerService.SetLabels(map[string]string{
+			REG_APP_LABEL_KEY: RS_APP_LABEL_VALUE,
+		})
+		if err := controllerutil.SetControllerReference(registry, registryServerService, r.Scheme); err != nil {
+			return err
+		}
+		registryServerService.Spec.Type = corev1.ServiceTypeClusterIP
+		registryServerService.Spec.Selector = map[string]string{
+			REG_APP_LABEL_KEY: RS_APP_LABEL_VALUE,
+		}
+		registryServerService.Spec.Ports = []corev1.ServicePort{
+			{
+				Name:       "https",
+				Port:       RS_HOST_PORT,
+				Protocol:   corev1.ProtocolTCP,
+				TargetPort: intstr.FromInt32(RS_HOST_PORT),
+			},
+		}
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	if registryServerService.Spec.ClusterIP == "" {
+		return "", fmt.Errorf("ClusterIP not yet allocated for Service %s", RS_SERVICE_NAME)
+	}
+	return registryServerService.Spec.ClusterIP, nil
 }
 
 func (cpt componentSts) setRSImageTag(registry *metalk8sv1alpha1.Registry) {

@@ -244,6 +244,11 @@ var _ = Describe("Registry Controller", func() {
 			Expect(k8sClient.Create(ctx, node3Resource)).To(Succeed())
 			Expect(k8sClient.Create(ctx, node4Resource)).To(Succeed())
 
+			node3Resource.Status.Addresses = []corev1.NodeAddress{{Type: corev1.NodeInternalIP, Address: "10.0.0.3"}}
+			node4Resource.Status.Addresses = []corev1.NodeAddress{{Type: corev1.NodeInternalIP, Address: "10.0.0.4"}}
+			Expect(k8sClient.Status().Update(ctx, node3Resource)).To(Succeed())
+			Expect(k8sClient.Status().Update(ctx, node4Resource)).To(Succeed())
+
 			DeferCleanup(func() {
 				_ = k8sClient.Delete(ctx, node3Resource)
 				_ = k8sClient.Delete(ctx, node4Resource)
@@ -487,6 +492,27 @@ var _ = Describe("Registry Controller", func() {
 				)
 				return err == nil
 			}, timeout, interval).Should(BeTrue())
+
+			By("checking the registry server ClusterIP Service")
+			rsService := &corev1.Service{}
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "metalk8s-registry-server", Namespace: "namespace-test-2"}, rsService)).To(Succeed())
+				g.Expect(rsService.Spec.Type).To(Equal(corev1.ServiceTypeClusterIP))
+				g.Expect(rsService.Spec.ClusterIP).NotTo(BeEmpty())
+			}, timeout, interval).Should(Succeed())
+
+			By("checking the registry server cert SANs include the node IP, the ClusterIP and the Service DNS names")
+			rsCert := &cmv1.Certificate{}
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "rs-external-server-node-3", Namespace: "namespace-test-2"}, rsCert)).To(Succeed())
+				g.Expect(rsCert.Spec.IPAddresses).To(ContainElements("10.0.0.3", rsService.Spec.ClusterIP))
+				g.Expect(rsCert.Spec.DNSNames).To(ContainElements(
+					"metalk8s-registry-server",
+					"metalk8s-registry-server.namespace-test-2",
+					"metalk8s-registry-server.namespace-test-2.svc",
+					"metalk8s-registry-server.namespace-test-2.svc.cluster.local",
+				))
+			}, timeout, interval).Should(Succeed())
 
 			By("deleting the custom resource for the Kind Registry")
 			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())

@@ -133,9 +133,17 @@ func (r *RegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, err
 	}
 
+	// Reconcile the Registry Server ClusterIP Service and read its ClusterIP.
+	clusterIP, err := r.ReconcileRSService(ctx, *registry.Spec.Namespace, registry)
+	if err != nil {
+		registry.SetAvailable(false)
+		registry.SetReady(false)
+		return ctrl.Result{}, fmt.Errorf("error reconciling Registry Server Service: %w", err)
+	}
+
 	// 5. List all nodes matching the nodeSelector
 	matchingNodes := &corev1.NodeList{}
-	err := r.List(ctx, matchingNodes, client.MatchingLabels(registry.Spec.NodeSelector))
+	err = r.List(ctx, matchingNodes, client.MatchingLabels(registry.Spec.NodeSelector))
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -161,7 +169,7 @@ func (r *RegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	// 6. Update the status.SelectedNodes with the list of matching nodes and deploy node-specific resources
-	nbServersAvailable, err = r.reconcileRSPerNodeResources(ctx, registry, matchingNodes)
+	nbServersAvailable, err = r.reconcileRSPerNodeResources(ctx, registry, matchingNodes, clusterIP)
 	if err != nil {
 		registry.SetAvailable(false)
 		registry.SetReady(false)
@@ -257,7 +265,7 @@ func (r *RegistryReconciler) reconcileRNACoreResources(ctx context.Context, regi
 	return nil
 }
 
-func (r *RegistryReconciler) reconcileRSPerNodeResources(ctx context.Context, registry *metalk8sv1alpha1.Registry, matchingNodes *corev1.NodeList) (int, error) {
+func (r *RegistryReconciler) reconcileRSPerNodeResources(ctx context.Context, registry *metalk8sv1alpha1.Registry, matchingNodes *corev1.NodeList, clusterIP string) (int, error) {
 	nbServersAvailable := 0
 
 	for _, node := range matchingNodes.Items {
@@ -270,7 +278,7 @@ func (r *RegistryReconciler) reconcileRSPerNodeResources(ctx context.Context, re
 			}
 		}
 
-		if err := r.ReconcileRSExternalServerCertificate(ctx, *registry.Spec.Namespace, node.Name, nodeIP, registry); err != nil {
+		if err := r.ReconcileRSExternalServerCertificate(ctx, *registry.Spec.Namespace, node.Name, nodeIP, clusterIP, registry); err != nil {
 			return nbServersAvailable, fmt.Errorf("error deploying Registry Server external server certificate for node %s: %w", node.Name, err)
 		}
 		if err := r.ReconcileRSStatefulSet(ctx, *registry.Spec.Namespace, node.Name, registry); err != nil {
