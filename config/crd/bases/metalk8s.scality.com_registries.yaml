@@ -123,7 +123,8 @@ spec:
                       image.
                     properties:
                       name:
-                        description: Name of the image.
+                        description: Name of the image, defaults to the component's
+                          default image name.
                         type: string
                       pullPolicy:
                         description: PullPolicy of the image.
@@ -150,14 +151,13 @@ spec:
                           x-kubernetes-map-type: atomic
                         type: array
                       registry:
-                        description: Registry URL.
+                        description: Registry URL, defaults to the component's default
+                          registry.
                         type: string
                       tag:
-                        description: Tag of the image, default to latest.
+                        description: Tag of the image, defaults to the component's
+                          default tag.
                         type: string
-                    required:
-                    - name
-                    - registry
                     type: object
                 required:
                 - authentication
@@ -201,7 +201,8 @@ spec:
                       image.
                     properties:
                       name:
-                        description: Name of the image.
+                        description: Name of the image, defaults to the component's
+                          default image name.
                         type: string
                       pullPolicy:
                         description: PullPolicy of the image.
@@ -228,14 +229,13 @@ spec:
                           x-kubernetes-map-type: atomic
                         type: array
                       registry:
-                        description: Registry URL.
+                        description: Registry URL, defaults to the component's default
+                          registry.
                         type: string
                       tag:
-                        description: Tag of the image, default to latest.
+                        description: Tag of the image, defaults to the component's
+                          default tag.
                         type: string
-                    required:
-                    - name
-                    - registry
                     type: object
                   nodeSelector:
                     additionalProperties:
@@ -333,7 +333,8 @@ spec:
                       image.
                     properties:
                       name:
-                        description: Name of the image.
+                        description: Name of the image, defaults to the component's
+                          default image name.
                         type: string
                       pullPolicy:
                         description: PullPolicy of the image.
@@ -360,14 +361,13 @@ spec:
                           x-kubernetes-map-type: atomic
                         type: array
                       registry:
-                        description: Registry URL.
+                        description: Registry URL, defaults to the component's default
+                          registry.
                         type: string
                       tag:
-                        description: Tag of the image, default to latest.
+                        description: Tag of the image, defaults to the component's
+                          default tag.
                         type: string
-                    required:
-                    - name
-                    - registry
                     type: object
                 required:
                 - certificateIssuerRef

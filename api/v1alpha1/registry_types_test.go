@@ -19,6 +19,7 @@ package v1alpha1
 import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/utils/ptr"
 )
 
@@ -52,7 +53,7 @@ var _ = Describe("Registry", func() {
 	Describe("GetMirrorPropagationImage", func() {
 		It("Should return the default image when mirrorPropagation is nil", func() {
 			r := &Registry{}
-			Expect(r.GetMirrorPropagationImage().GetImage()).To(Equal("ghcr.io/scality/file-reflector:v0.1.0"))
+			Expect(r.GetMirrorPropagationImage().GetImage()).To(Equal(FileReflectorImageRegistry + "/" + FileReflectorImageName + ":" + FileReflectorImageTag))
 		})
 
 		It("Should return the custom image when set", func() {
@@ -62,12 +63,46 @@ var _ = Describe("Registry", func() {
 			Expect(r.GetMirrorPropagationImage().GetImage()).To(Equal("registry.example.com/custom:v1.2.3"))
 		})
 
-		It("Should default the tag to latest without mutating the spec", func() {
+		It("Should default the missing image fields without mutating the spec", func() {
 			r := &Registry{Spec: RegistrySpec{MirrorPropagation: &MirrorPropagationSpec{
-				Image: &ImageSpec{Registry: "registry.example.com", Name: "custom"},
+				Image: &ImageSpec{PullSecrets: []corev1.LocalObjectReference{{Name: "regcred"}}},
 			}}}
-			Expect(r.GetMirrorPropagationImage().GetImage()).To(Equal("registry.example.com/custom:latest"))
+			image := r.GetMirrorPropagationImage()
+			Expect(image.GetImage()).To(Equal(FileReflectorImageRegistry + "/" + FileReflectorImageName + ":" + FileReflectorImageTag))
+			Expect(image.PullSecrets).To(ConsistOf(corev1.LocalObjectReference{Name: "regcred"}))
 			Expect(r.Spec.MirrorPropagation.Image.Tag).To(BeNil())
+			Expect(r.Spec.MirrorPropagation.Image.Registry).To(BeEmpty())
+		})
+	})
+
+	Describe("WithDefaults", func() {
+		It("Should fill the empty image fields with the component defaults", func() {
+			r := &Registry{Spec: RegistrySpec{
+				Server: RegistryServerSpec{Image: &ImageSpec{Tag: ptr.To("custom-tag")}},
+				Agent: RegistryNodeAgentSpec{Image: &ImageSpec{
+					PullSecrets: []corev1.LocalObjectReference{{Name: "regcred"}},
+				}},
+				MirrorPropagation: &MirrorPropagationSpec{
+					Enabled: true,
+					Image: &ImageSpec{
+						PullSecrets: []corev1.LocalObjectReference{{Name: "regcred"}},
+					},
+				},
+			}}
+			r.WithDefaults()
+			Expect(r.Spec.Server.Image.GetImage()).To(Equal(RegistryServerImageRegistry + "/" + RegistryServerImageName + ":custom-tag"))
+			Expect(r.Spec.Agent.Image.GetImage()).To(Equal(RegistryNodeAgentImageRegistry + "/" + RegistryNodeAgentImageName + ":" + RegistryNodeAgentImageTag))
+			Expect(r.Spec.Agent.Image.PullSecrets).To(ConsistOf(corev1.LocalObjectReference{Name: "regcred"}))
+			Expect(r.Spec.MirrorPropagation.Image.GetImage()).To(Equal(FileReflectorImageRegistry + "/" + FileReflectorImageName + ":" + FileReflectorImageTag))
+			Expect(r.Spec.MirrorPropagation.Image.PullSecrets).To(ConsistOf(corev1.LocalObjectReference{Name: "regcred"}))
+		})
+
+		It("Should fill the images entirely when not set", func() {
+			r := &Registry{}
+			r.WithDefaults()
+			Expect(r.Spec.Server.Image.GetImage()).To(Equal(RegistryServerImageRegistry + "/" + RegistryServerImageName + ":" + RegistryServerImageTag))
+			Expect(r.Spec.Agent.Image.GetImage()).To(Equal(RegistryNodeAgentImageRegistry + "/" + RegistryNodeAgentImageName + ":" + RegistryNodeAgentImageTag))
+			Expect(r.Spec.MirrorPropagation).To(BeNil())
 		})
 	})
 
