@@ -70,7 +70,7 @@ The spec includes:
 | `spec.nodeSelector` | Node selector for scheduling registry node agents |
 | `spec.server` | Registry server image and TLS certificate issuer reference |
 | `spec.agent` | Registry node agent image, TLS issuer, and mTLS authentication (CA secret ref) |
-| `spec.mirrorPropagation` | Controls generation of the containerd registry mirror ConfigMap, enabled by default (`spec.mirrorPropagation.enabled`) |
+| `spec.mirrorPropagation` | Containerd mirror config propagation: mirror ConfigMap generation and its sync DaemonSet. Fields: `enabled` (default true), `image` (file-reflector), `containerdConfigPath` (default `/etc/containerd/certs.d`), `nodeSelector`, `tolerations`, `ignorePaths` |
 
 See [config/samples/metalk8s_v1alpha1_registry.yaml](config/samples/metalk8s_v1alpha1_registry.yaml) for a full example.
 
