@@ -62,6 +62,7 @@ rules:
 - apiGroups:
   - apps
   resources:
+  - daemonsets
   - statefulsets
   verbs:
   - create

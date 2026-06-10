@@ -550,6 +550,45 @@ var _ = Describe("Registry Controller", func() {
 				ContainElement(corev1.EnvVar{Name: "HTTP_ADDR", Value: "10.0.0.3:5000"}),
 			)
 
+			By("checking the containerd mirror sync DaemonSet")
+			syncDS := &appsv1.DaemonSet{}
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{
+					Name:      "metalk8s-registry-containerd-mirror-sync",
+					Namespace: "namespace-test-2",
+				}, syncDS)).To(Succeed())
+				g.Expect(syncDS.OwnerReferences).NotTo(BeEmpty())
+				container := syncDS.Spec.Template.Spec.Containers[0]
+				g.Expect(container.Image).To(Equal(
+					metalk8sv1alpha1.FileReflectorImageRegistry + "/" +
+						metalk8sv1alpha1.FileReflectorImageName + ":" + metalk8sv1alpha1.FileReflectorImageTag,
+				))
+				g.Expect(container.Args).To(Equal([]string{
+					"--source=/source",
+					"--target=/target",
+					"--file-mode=0644",
+					"--owner=0:0",
+				}))
+				g.Expect(syncDS.Spec.Template.Spec.NodeSelector).To(
+					Equal(map[string]string{"kubernetes.io/os": "linux"}),
+				)
+				g.Expect(container.SecurityContext.RunAsNonRoot).To(HaveValue(BeTrue()))
+				g.Expect(container.SecurityContext.Capabilities.Drop).To(
+					Equal([]corev1.Capability{"ALL"}),
+				)
+				g.Expect(container.SecurityContext.Capabilities.Add).To(ConsistOf(
+					corev1.Capability("DAC_OVERRIDE"),
+					corev1.Capability("FOWNER"),
+					corev1.Capability("CHOWN"),
+				))
+				g.Expect(container.VolumeMounts[0].MountPath).To(Equal("/source"))
+				g.Expect(container.VolumeMounts[0].ReadOnly).To(BeTrue())
+				volumes := syncDS.Spec.Template.Spec.Volumes
+				g.Expect(volumes[0].ConfigMap.Name).To(Equal("metalk8s-registry-containerd-mirror"))
+				g.Expect(volumes[0].ConfigMap.Items).To(BeEmpty())
+				g.Expect(volumes[1].HostPath.Path).To(Equal("/etc/containerd/certs.d/_default"))
+			}, timeout, interval).Should(Succeed())
+
 			By("deleting the custom resource for the Kind Registry")
 			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
 
@@ -1254,6 +1293,16 @@ var _ = Describe("Registry Controller", func() {
 			}, timeout, interval).Should(Succeed())
 			err = k8sClient.Get(ctx, types.NamespacedName{Name: cmName, Namespace: namespace}, &corev1.ConfigMap{})
 			Expect(errors.IsNotFound(err)).To(BeTrue())
+
+			By("disabling mirrorPropagation deletes the sync DaemonSet too")
+			Eventually(func() bool {
+				err := k8sClient.Get(
+					ctx,
+					types.NamespacedName{Name: "metalk8s-registry-containerd-mirror-sync", Namespace: namespace},
+					&appsv1.DaemonSet{},
+				)
+				return errors.IsNotFound(err)
+			}, timeout, interval).Should(BeTrue())
 		})
 	})
 
@@ -1327,6 +1376,133 @@ var _ = Describe("Registry Controller", func() {
 			cm := &corev1.ConfigMap{}
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: cmName, Namespace: namespace}, cm)).To(Succeed())
 			Expect(cm.Data["hosts.toml"]).To(Equal(expectedHosts))
+		})
+	})
+
+	Context("When reconciling the containerd mirror sync DaemonSet with custom fields", func() {
+		It("propagates image, path, scheduling and ignore paths to the DaemonSet", func() {
+			resourceName := "test-mirror-sync-custom"
+			namespace := "namespace-mirror-sync-custom"
+
+			resource := &metalk8sv1alpha1.Registry{ObjectMeta: metav1.ObjectMeta{Name: resourceName}}
+			_, err := controllerutil.CreateOrUpdate(ctx, k8sClient, resource, func() error {
+				resource.Spec = metalk8sv1alpha1.RegistrySpec{
+					LogLevel:      ptr.To("info"),
+					ArchivesPath:  ptr.To("/srv/scality/metalk8s/archives"),
+					SolutionsPath: ptr.To("/srv/scality/metalk8s/solutions"),
+					Namespace:     ptr.To(namespace),
+					NodeSelector:  map[string]string{"registry": "mirror-sync-custom"},
+					MirrorPropagation: &metalk8sv1alpha1.MirrorPropagationSpec{
+						Enabled: true,
+						Image: &metalk8sv1alpha1.ImageSpec{
+							Registry:    "registry.example.com",
+							Name:        "custom-reflector",
+							Tag:         ptr.To("v9.9.9"),
+							PullSecrets: []corev1.LocalObjectReference{{Name: "regcred"}},
+						},
+						ContainerdConfigPath: "/var/lib/containerd/certs.d",
+						NodeSelector:         map[string]string{"kubernetes.io/arch": "amd64"},
+						Tolerations: []corev1.Toleration{{
+							Key:      "node-role.kubernetes.io/bootstrap",
+							Operator: corev1.TolerationOpExists,
+							Effect:   corev1.TaintEffectNoSchedule,
+						}},
+						IgnorePaths: []string{"legacy.invalid", "other.invalid"},
+					},
+					Server: metalk8sv1alpha1.RegistryServerSpec{
+						CertificateIssuerRef: cmmetav1.ObjectReference{
+							Name: "registry-server-issuer",
+							Kind: "ClusterIssuer",
+						},
+						Image: &metalk8sv1alpha1.ImageSpec{
+							Registry: "ghcr.io/scality",
+							Name:     "metalk8s-registry-server",
+							Tag:      ptr.To("v1.0.0"),
+						},
+					},
+					Agent: metalk8sv1alpha1.RegistryNodeAgentSpec{
+						Authentication: metalk8sv1alpha1.AuthenticationSpec{
+							MTLS: metalk8sv1alpha1.MTLSAuthenticationSpec{
+								CASecretRef: corev1.SecretReference{
+									Name:      "registry-agent-mtls-ca",
+									Namespace: secretNamespace,
+								},
+							},
+						},
+						Image: &metalk8sv1alpha1.ImageSpec{
+							Registry: "ghcr.io/scality",
+							Name:     "metalk8s-registry-agent",
+							Tag:      ptr.To("v1.2.3"),
+						},
+					},
+				}
+				return nil
+			})
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(func() { _ = k8sClient.Delete(ctx, resource) })
+
+			By("waiting for the mirror sync available status")
+			Eventually(func(g Gomega) {
+				updated := &metalk8sv1alpha1.Registry{}
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: resourceName}, updated)).To(Succeed())
+				g.Expect(updated.Status.MirrorSyncAvailable).To(HaveValue(BeTrue()))
+			}, timeout, interval).Should(Succeed())
+
+			By("checking the sync DaemonSet carries the custom fields")
+			ds := &appsv1.DaemonSet{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{
+				Name:      "metalk8s-registry-containerd-mirror-sync",
+				Namespace: namespace,
+			}, ds)).To(Succeed())
+			container := ds.Spec.Template.Spec.Containers[0]
+			Expect(container.Image).To(Equal("registry.example.com/custom-reflector:v9.9.9"))
+			Expect(container.Args).To(Equal([]string{
+				"--source=/source",
+				"--target=/target",
+				"--ignore=legacy.invalid",
+				"--ignore=other.invalid",
+				"--file-mode=0644",
+				"--owner=0:0",
+			}))
+			Expect(ds.Spec.Template.Spec.NodeSelector).To(
+				Equal(map[string]string{"kubernetes.io/arch": "amd64"}),
+			)
+			Expect(ds.Spec.Template.Spec.Tolerations).To(HaveLen(1))
+			Expect(ds.Spec.Template.Spec.Tolerations[0].Key).To(
+				Equal("node-role.kubernetes.io/bootstrap"),
+			)
+			Expect(ds.Spec.Template.Spec.ImagePullSecrets).To(
+				ConsistOf(corev1.LocalObjectReference{Name: "regcred"}),
+			)
+			Expect(ds.Spec.Template.Spec.Volumes[1].HostPath.Path).To(
+				Equal("/var/lib/containerd/certs.d/_default"),
+			)
+
+			By("clearing mirrorPropagation drops the tolerations and pull secrets")
+			updatedResource := &metalk8sv1alpha1.Registry{}
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: resourceName}, updatedResource)).To(Succeed())
+				updatedResource.Spec.MirrorPropagation = nil
+				g.Expect(k8sClient.Update(ctx, updatedResource)).To(Succeed())
+			}, timeout, interval).Should(Succeed())
+			// Sync on the conditions observing the new generation: the DaemonSet is
+			// reconciled before the status is patched.
+			Eventually(func(g Gomega) {
+				current := &metalk8sv1alpha1.Registry{}
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: resourceName}, current)).To(Succeed())
+				g.Expect(current.Status.Conditions).To(ContainElement(
+					gstruct.MatchFields(gstruct.IgnoreExtras, gstruct.Fields{
+						"Type":               Equal("Available"),
+						"ObservedGeneration": Equal(updatedResource.Generation),
+					}),
+				))
+			}, timeout, interval).Should(Succeed())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{
+				Name:      "metalk8s-registry-containerd-mirror-sync",
+				Namespace: namespace,
+			}, ds)).To(Succeed())
+			Expect(ds.Spec.Template.Spec.Tolerations).To(BeEmpty())
+			Expect(ds.Spec.Template.Spec.ImagePullSecrets).To(BeEmpty())
 		})
 	})
 })

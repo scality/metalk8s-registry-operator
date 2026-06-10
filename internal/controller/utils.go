@@ -18,6 +18,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -31,6 +32,7 @@ const (
 	ORGANIZATION_NAME                      = "metalk8s"
 	SSA_FIELD_OWNER_NAME                   = "registry-operator"
 	CONTAINERD_MIRROR_CONFIGMAP_NAME       = "metalk8s-registry-containerd-mirror"
+	CONTAINERD_MIRROR_SYNC_DAEMONSET_NAME  = "metalk8s-registry-containerd-mirror-sync"
 	CERTS_D_SUBDIR_ANNOTATION              = "registry.metalk8s.scality.com/certs-d-subdir"
 	CERTS_D_SUBDIR_VALUE                   = "_default"
 	MIRROR_HOSTS_TOML_KEY                  = "hosts.toml"
@@ -1058,6 +1060,123 @@ func (r *RegistryReconciler) reconcileContainerdMirrorConfigMap(ctx context.Cont
 			data[MIRROR_CA_KEY] = caCrt
 		}
 		configMap.Data = data
+		return nil
+	})
+	return err
+}
+
+// ReconcileContainerdMirrorSyncDaemonSet reconciles the DaemonSet running
+// file-reflector to sync the containerd mirror ConfigMap to every node's
+// containerd certs.d directory. Deletes it when mirror propagation is disabled.
+func (r *RegistryReconciler) ReconcileContainerdMirrorSyncDaemonSet(ctx context.Context, registryNamespace string, registry *metalk8sv1alpha1.Registry) error {
+	daemonSet := &appsv1.DaemonSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      CONTAINERD_MIRROR_SYNC_DAEMONSET_NAME,
+			Namespace: registryNamespace,
+		},
+	}
+
+	if !registry.IsMirrorPropagationEnabled() {
+		if err := r.Delete(ctx, daemonSet); err != nil && !apierrors.IsNotFound(err) {
+			return fmt.Errorf("error deleting containerd mirror sync DaemonSet: %w", err)
+		}
+		return nil
+	}
+
+	image := registry.GetMirrorPropagationImage()
+
+	args := []string{"--source=/source", "--target=/target"}
+	if registry.Spec.MirrorPropagation != nil {
+		for _, ignorePath := range registry.Spec.MirrorPropagation.IgnorePaths {
+			args = append(args, fmt.Sprintf("--ignore=%s", ignorePath))
+		}
+	}
+	args = append(args, "--file-mode=0644", "--owner=0:0")
+
+	labels := map[string]string{
+		REG_APP_LABEL_KEY: CONTAINERD_MIRROR_SYNC_DAEMONSET_NAME,
+	}
+
+	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, daemonSet, func() error {
+		if err := controllerutil.SetControllerReference(registry, daemonSet, r.Scheme); err != nil {
+			return err
+		}
+		daemonSet.SetLabels(labels)
+		daemonSet.Spec.Selector = &metav1.LabelSelector{MatchLabels: labels}
+		daemonSet.Spec.Template.Labels = labels
+		daemonSet.Spec.Template.Spec.NodeSelector = registry.GetMirrorPropagationNodeSelector()
+		// Assign unconditionally so fields removed from the spec are cleared on update.
+		var tolerations []corev1.Toleration
+		if registry.Spec.MirrorPropagation != nil {
+			tolerations = registry.Spec.MirrorPropagation.Tolerations
+		}
+		daemonSet.Spec.Template.Spec.Tolerations = tolerations
+		daemonSet.Spec.Template.Spec.ImagePullSecrets = image.PullSecrets
+
+		container := corev1.Container{
+			Name:  "containerd-mirror-sync",
+			Image: image.GetImage(),
+			Args:  args,
+			SecurityContext: &corev1.SecurityContext{
+				RunAsNonRoot:             ptr.To(true),
+				ReadOnlyRootFilesystem:   ptr.To(true),
+				AllowPrivilegeEscalation: ptr.To(false),
+				Capabilities: &corev1.Capabilities{
+					Drop: []corev1.Capability{"ALL"},
+					// Required to write root:root/0644 files on the host while
+					// running as non-root (file caps are set on the binary).
+					Add: []corev1.Capability{"DAC_OVERRIDE", "FOWNER", "CHOWN"},
+				},
+			},
+			Resources: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("10m"),
+					corev1.ResourceMemory: resource.MustParse("16Mi"),
+				},
+				Limits: corev1.ResourceList{
+					corev1.ResourceMemory: resource.MustParse("32Mi"),
+				},
+			},
+			VolumeMounts: []corev1.VolumeMount{
+				{
+					Name:      "mirror-config",
+					MountPath: "/source",
+					ReadOnly:  true,
+				},
+				{
+					Name:      "host-certs-d",
+					MountPath: "/target",
+				},
+			},
+		}
+		if image.PullPolicy != nil {
+			container.ImagePullPolicy = *image.PullPolicy
+		}
+		daemonSet.Spec.Template.Spec.Containers = []corev1.Container{container}
+
+		daemonSet.Spec.Template.Spec.Volumes = []corev1.Volume{
+			{
+				Name: "mirror-config",
+				VolumeSource: corev1.VolumeSource{
+					ConfigMap: &corev1.ConfigMapVolumeSource{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: CONTAINERD_MIRROR_CONFIGMAP_NAME,
+						},
+					},
+				},
+			},
+			{
+				Name: "host-certs-d",
+				VolumeSource: corev1.VolumeSource{
+					HostPath: &corev1.HostPathVolumeSource{
+						// Only the _default subdir is managed by the reflector: the
+						// rest of the certs.d directory is left untouched.
+						Path: fmt.Sprintf("%s/%s", registry.GetContainerdConfigPath(), CERTS_D_SUBDIR_VALUE),
+						Type: ptr.To(corev1.HostPathDirectoryOrCreate),
+					},
+				},
+			},
+		}
 		return nil
 	})
 	return err
