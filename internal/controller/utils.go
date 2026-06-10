@@ -1068,7 +1068,10 @@ func (r *RegistryReconciler) reconcileContainerdMirrorConfigMap(ctx context.Cont
 // ReconcileContainerdMirrorSyncDaemonSet reconciles the DaemonSet running
 // file-reflector to sync the containerd mirror ConfigMap to every node's
 // containerd certs.d directory. Deletes it when mirror propagation is disabled.
-func (r *RegistryReconciler) ReconcileContainerdMirrorSyncDaemonSet(ctx context.Context, registryNamespace string, registry *metalk8sv1alpha1.Registry) error {
+// It updates the mirror sync status fields and returns the readiness of the
+// mirror sync for the global readiness computation (true when disabled, so a
+// disabled mirror sync does not degrade the global readiness).
+func (r *RegistryReconciler) ReconcileContainerdMirrorSyncDaemonSet(ctx context.Context, registryNamespace string, registry *metalk8sv1alpha1.Registry) (bool, error) {
 	daemonSet := &appsv1.DaemonSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      CONTAINERD_MIRROR_SYNC_DAEMONSET_NAME,
@@ -1078,9 +1081,11 @@ func (r *RegistryReconciler) ReconcileContainerdMirrorSyncDaemonSet(ctx context.
 
 	if !registry.IsMirrorPropagationEnabled() {
 		if err := r.Delete(ctx, daemonSet); err != nil && !apierrors.IsNotFound(err) {
-			return fmt.Errorf("error deleting containerd mirror sync DaemonSet: %w", err)
+			return false, fmt.Errorf("error deleting containerd mirror sync DaemonSet: %w", err)
 		}
-		return nil
+		registry.SetMirrorSyncAvailable(false)
+		registry.SetMirrorSyncReady(false)
+		return true, nil
 	}
 
 	image := registry.GetMirrorPropagationImage()
@@ -1179,5 +1184,12 @@ func (r *RegistryReconciler) ReconcileContainerdMirrorSyncDaemonSet(ctx context.
 		}
 		return nil
 	})
-	return err
+	if err != nil {
+		return false, err
+	}
+
+	registry.SetMirrorSyncAvailable(true)
+	ready := daemonSet.Status.NumberReady == daemonSet.Status.DesiredNumberScheduled
+	registry.SetMirrorSyncReady(ready)
+	return ready, nil
 }

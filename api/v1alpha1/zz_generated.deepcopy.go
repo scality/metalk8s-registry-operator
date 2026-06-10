@@ -358,6 +358,16 @@ func (in *RegistryStatus) DeepCopyInto(out *RegistryStatus) {
 		*out = new(bool)
 		**out = **in
 	}
+	if in.MirrorSyncAvailable != nil {
+		in, out := &in.MirrorSyncAvailable, &out.MirrorSyncAvailable
+		*out = new(bool)
+		**out = **in
+	}
+	if in.MirrorSyncReady != nil {
+		in, out := &in.MirrorSyncReady, &out.MirrorSyncReady
+		*out = new(bool)
+		**out = **in
+	}
 	if in.Replicas != nil {
 		in, out := &in.Replicas, &out.Replicas
 		*out = new(int)

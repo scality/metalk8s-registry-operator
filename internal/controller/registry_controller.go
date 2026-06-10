@@ -171,7 +171,7 @@ func (r *RegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		if err := r.reconcileContainerdMirrorConfigMap(ctx, *registry.Spec.Namespace, registry, clusterIP, nil); err != nil {
 			return ctrl.Result{}, fmt.Errorf("error reconciling containerd mirror ConfigMap: %w", err)
 		}
-		if err := r.ReconcileContainerdMirrorSyncDaemonSet(ctx, *registry.Spec.Namespace, registry); err != nil {
+		if _, err := r.ReconcileContainerdMirrorSyncDaemonSet(ctx, *registry.Spec.Namespace, registry); err != nil {
 			return ctrl.Result{}, fmt.Errorf("error reconciling containerd mirror sync DaemonSet: %w", err)
 		}
 		return ctrl.Result{}, nil
@@ -209,7 +209,8 @@ func (r *RegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	// Reconcile the DaemonSet syncing the mirror ConfigMap to every node.
-	if err := r.ReconcileContainerdMirrorSyncDaemonSet(ctx, *registry.Spec.Namespace, registry); err != nil {
+	mirrorSyncReady, err := r.ReconcileContainerdMirrorSyncDaemonSet(ctx, *registry.Spec.Namespace, registry)
+	if err != nil {
 		registry.SetAvailable(false)
 		registry.SetReady(false)
 		return ctrl.Result{}, fmt.Errorf("error reconciling containerd mirror sync DaemonSet: %w", err)
@@ -217,7 +218,7 @@ func (r *RegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	// 8. Update the status.Available
 	registry.SetAvailable(true)
-	registry.SetReady(agentReady && serverReady)
+	registry.SetReady(agentReady && serverReady && mirrorSyncReady)
 	registry.SetAgentAvailable(nbAgentsAvailable == *registry.Status.Replicas)
 	registry.SetAgentReady(nbAgentReady == *registry.Status.Replicas)
 	registry.SetServerAvailable(nbServersAvailable == *registry.Status.Replicas)

@@ -175,6 +175,10 @@ type RegistryStatus struct {
 	AgentAvailable *bool `json:"agentAvailable,omitempty"`
 	// Readiness of the registry node agent.
 	AgentReady *bool `json:"agentReady,omitempty"`
+	// Availability of the containerd mirror sync.
+	MirrorSyncAvailable *bool `json:"mirrorSyncAvailable,omitempty"`
+	// Readiness of the containerd mirror sync.
+	MirrorSyncReady *bool `json:"mirrorSyncReady,omitempty"`
 	// Number of replicas for NodeAgent and RegistryServer.
 	Replicas *int `json:"replicas,omitempty"`
 	// Number of ready replicas for RegistryServer.
@@ -246,6 +250,12 @@ func (registry *Registry) InitStatus() {
 	}
 	if registry.Status.AgentReady == nil {
 		registry.Status.AgentReady = ptr.To(false)
+	}
+	if registry.Status.MirrorSyncAvailable == nil {
+		registry.Status.MirrorSyncAvailable = ptr.To(false)
+	}
+	if registry.Status.MirrorSyncReady == nil {
+		registry.Status.MirrorSyncReady = ptr.To(false)
 	}
 	if registry.Status.Replicas == nil {
 		registry.Status.Replicas = ptr.To(0)
@@ -472,4 +482,40 @@ func (r *Registry) SetAgentReady(ready bool) {
 	}
 	meta.SetStatusCondition(&r.Status.Conditions, condition)
 	r.Status.AgentReady = ptr.To(ready)
+}
+
+func (r *Registry) SetMirrorSyncAvailable(available bool) {
+	condition := metav1.Condition{
+		Type:               "MirrorSyncAvailable",
+		Status:             metav1.ConditionTrue,
+		LastTransitionTime: metav1.Now(),
+		Reason:             "RegistryMirrorSyncAvailable",
+		Message:            "The containerd mirror sync is available.",
+		ObservedGeneration: r.Generation,
+	}
+	if !available {
+		condition.Status = metav1.ConditionFalse
+		condition.Reason = "RegistryMirrorSyncNotAvailable"
+		condition.Message = "The containerd mirror sync is not available."
+	}
+	meta.SetStatusCondition(&r.Status.Conditions, condition)
+	r.Status.MirrorSyncAvailable = ptr.To(available)
+}
+
+func (r *Registry) SetMirrorSyncReady(ready bool) {
+	condition := metav1.Condition{
+		Type:               "MirrorSyncReady",
+		Status:             metav1.ConditionTrue,
+		LastTransitionTime: metav1.Now(),
+		Reason:             "RegistryMirrorSyncReady",
+		Message:            "The containerd mirror sync is ready.",
+		ObservedGeneration: r.Generation,
+	}
+	if !ready {
+		condition.Status = metav1.ConditionFalse
+		condition.Reason = "RegistryMirrorSyncNotReady"
+		condition.Message = "The containerd mirror sync is not ready."
+	}
+	meta.SetStatusCondition(&r.Status.Conditions, condition)
+	r.Status.MirrorSyncReady = ptr.To(ready)
 }

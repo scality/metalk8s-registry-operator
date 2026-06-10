@@ -90,6 +90,8 @@ The Status includes:
 | `status.ready` | All resources (StatefulSets, Certificates, ...) are ready (READY) |
 | `status.agentReady` | True, when all expected Registry-Node-Agent are ready |
 | `status.serverReady` | True, when all expected Registry-Server are ready |
+| `status.mirrorSyncAvailable` | True, when the containerd mirror sync DaemonSet is created |
+| `status.mirrorSyncReady` | True, when all containerd mirror sync DaemonSet replicas are ready |
 | `status.readyAgentReplicas` | Number of ready Registry-Node-Agent (AGENT REPLICAS) |
 | `status.readyServerReplicas` | Number of ready Registry-Server (SERVER REPLICAS) |
 | `status.statusPerNode` | Same information as below, sorted by `Nodes` |

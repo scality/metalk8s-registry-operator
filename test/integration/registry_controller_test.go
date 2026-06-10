@@ -589,6 +589,16 @@ var _ = Describe("Registry Controller", func() {
 				g.Expect(volumes[1].HostPath.Path).To(Equal("/etc/containerd/certs.d/_default"))
 			}, timeout, interval).Should(Succeed())
 
+			By("checking the containerd mirror sync status")
+			Eventually(func(g Gomega) {
+				updated := &metalk8sv1alpha1.Registry{}
+				g.Expect(k8sClient.Get(ctx, typeNamespacedName, updated)).To(Succeed())
+				g.Expect(updated.Status.MirrorSyncAvailable).To(HaveValue(BeTrue()))
+				// envtest runs no DaemonSet controller: desired == ready == 0, so the
+				// DaemonSet is vacuously ready.
+				g.Expect(updated.Status.MirrorSyncReady).To(HaveValue(BeTrue()))
+			}, timeout, interval).Should(Succeed())
+
 			By("deleting the custom resource for the Kind Registry")
 			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
 
@@ -1294,15 +1304,23 @@ var _ = Describe("Registry Controller", func() {
 			err = k8sClient.Get(ctx, types.NamespacedName{Name: cmName, Namespace: namespace}, &corev1.ConfigMap{})
 			Expect(errors.IsNotFound(err)).To(BeTrue())
 
-			By("disabling mirrorPropagation deletes the sync DaemonSet too")
-			Eventually(func() bool {
-				err := k8sClient.Get(
-					ctx,
-					types.NamespacedName{Name: "metalk8s-registry-containerd-mirror-sync", Namespace: namespace},
-					&appsv1.DaemonSet{},
-				)
-				return errors.IsNotFound(err)
-			}, timeout, interval).Should(BeTrue())
+			By("checking the mirror sync status is reset and the global status not degraded when disabled")
+			Eventually(func(g Gomega) {
+				current := &metalk8sv1alpha1.Registry{}
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: resourceName}, current)).To(Succeed())
+				g.Expect(current.Status.MirrorSyncAvailable).To(HaveValue(BeFalse()))
+				g.Expect(current.Status.MirrorSyncReady).To(HaveValue(BeFalse()))
+				// A disabled mirror sync must not degrade the global status.
+				g.Expect(current.Status.Available).To(HaveValue(BeTrue()))
+			}, timeout, interval).Should(Succeed())
+
+			By("checking the sync DaemonSet is deleted too")
+			err = k8sClient.Get(
+				ctx,
+				types.NamespacedName{Name: "metalk8s-registry-containerd-mirror-sync", Namespace: namespace},
+				&appsv1.DaemonSet{},
+			)
+			Expect(errors.IsNotFound(err)).To(BeTrue())
 		})
 	})
 

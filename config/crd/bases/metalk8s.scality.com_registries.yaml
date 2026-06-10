@@ -457,6 +457,12 @@ spec:
                   - type
                   type: object
                 type: array
+              mirrorSyncAvailable:
+                description: Availability of the containerd mirror sync.
+                type: boolean
+              mirrorSyncReady:
+                description: Readiness of the containerd mirror sync.
+                type: boolean
               nodeIPs:
                 description: NodeIPs at which the registry is reachable directly on
                   each selected node.
