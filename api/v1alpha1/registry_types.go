@@ -32,9 +32,13 @@ const (
 	RegistryNodeAgentImageRegistry = "ghcr.io/scality"
 	RegistryNodeAgentImageName     = "metalk8s-registry-agent"
 	RegistryNodeAgentImageTag      = "v0.0.1-alpha.9"
+	FileReflectorImageRegistry     = "ghcr.io/scality"
+	FileReflectorImageName         = "file-reflector"
+	FileReflectorImageTag          = "v0.2.0"
 	DEFAULT_NAMESPACE              = "metalk8s-registry"
 	DEFAULT_ARCHIVES_PATH          = "/srv/scality/metalk8s/archives"
 	DEFAULT_SOLUTIONS_PATH         = "/srv/scality/metalk8s/solutions"
+	DEFAULT_CONTAINERD_CONFIG_PATH = "/etc/containerd/certs.d"
 )
 
 type ImageSpec struct {
@@ -90,6 +94,25 @@ type MirrorPropagationSpec struct {
 	// Enabled controls whether the mirror config propagation is active.
 	// +kubebuilder:default=true
 	Enabled bool `json:"enabled"`
+	// Image is the specification of the file-reflector image.
+	// +kubebuilder:validation:Optional
+	Image *ImageSpec `json:"image,omitempty"`
+	// ContainerdConfigPath is the containerd mirror config path on the host,
+	// defaults to "/etc/containerd/certs.d".
+	// +kubebuilder:default="/etc/containerd/certs.d"
+	// +kubebuilder:validation:Optional
+	ContainerdConfigPath string `json:"containerdConfigPath,omitempty"`
+	// NodeSelector for the sync DaemonSet pods.
+	// Defaults to {"kubernetes.io/os": "linux"}.
+	// +kubebuilder:validation:Optional
+	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
+	// Tolerations for the sync DaemonSet pods.
+	// +kubebuilder:validation:Optional
+	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
+	// IgnorePaths is a list of paths in the target directory that should not be
+	// managed by the file-reflector (e.g. legacy registry config managed externally).
+	// +kubebuilder:validation:Optional
+	IgnorePaths []string `json:"ignorePaths,omitempty"`
 }
 
 // RegistrySpec defines the desired state of Registry.
@@ -305,6 +328,42 @@ func (r *Registry) GetSolutionsPath() string {
 // be generated. It defaults to true when the mirrorPropagation section is omitted.
 func (r *Registry) IsMirrorPropagationEnabled() bool {
 	return r.Spec.MirrorPropagation == nil || r.Spec.MirrorPropagation.Enabled
+}
+
+// GetMirrorPropagationImage returns the file-reflector image spec, or its default
+// if not set. The returned ImageSpec always has a non-nil Tag and is a copy (the
+// spec is never mutated).
+func (r *Registry) GetMirrorPropagationImage() *ImageSpec {
+	if r.Spec.MirrorPropagation == nil || r.Spec.MirrorPropagation.Image == nil {
+		return &ImageSpec{
+			Registry: FileReflectorImageRegistry,
+			Name:     FileReflectorImageName,
+			Tag:      ptr.To(FileReflectorImageTag),
+		}
+	}
+	image := r.Spec.MirrorPropagation.Image.DeepCopy()
+	if image.Tag == nil {
+		image.Tag = ptr.To("latest")
+	}
+	return image
+}
+
+// GetContainerdConfigPath returns the containerd certs.d path on the host,
+// or its default value if not set.
+func (r *Registry) GetContainerdConfigPath() string {
+	if r.Spec.MirrorPropagation != nil && r.Spec.MirrorPropagation.ContainerdConfigPath != "" {
+		return r.Spec.MirrorPropagation.ContainerdConfigPath
+	}
+	return DEFAULT_CONTAINERD_CONFIG_PATH
+}
+
+// GetMirrorPropagationNodeSelector returns the sync DaemonSet nodeSelector,
+// or its default value if not set.
+func (r *Registry) GetMirrorPropagationNodeSelector() map[string]string {
+	if r.Spec.MirrorPropagation != nil && len(r.Spec.MirrorPropagation.NodeSelector) > 0 {
+		return r.Spec.MirrorPropagation.NodeSelector
+	}
+	return map[string]string{"kubernetes.io/os": "linux"}
 }
 
 func (r *Registry) SetAvailable(available bool) {
