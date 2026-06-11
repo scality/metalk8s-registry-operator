@@ -30,7 +30,7 @@ const (
 	RegistryServerImageName        = "metalk8s-registry-server"
 	RegistryServerImageTag         = "v1.0.0"
 	RegistryNodeAgentImageRegistry = "ghcr.io/scality"
-	RegistryNodeAgentImageName     = "metalk8s-registry-agent"
+	RegistryNodeAgentImageName     = "metalk8s-registry-node-agent"
 	RegistryNodeAgentImageTag      = "v0.0.1-alpha.9"
 	FileReflectorImageRegistry     = "ghcr.io/scality"
 	FileReflectorImageName         = "file-reflector"
