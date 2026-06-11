@@ -682,75 +682,64 @@ func (cpt componentSts) setRNAVolumes(registry *metalk8sv1alpha1.Registry, nodeN
 		volumesMapping[volume.Name] = id
 	}
 
-	var idVol int
-	var exists bool
+	// Only override the fields the operator owns (hostPath path, secret name):
+	// everything else (hostPath type, defaultMode, ...) comes from the base manifest.
+	setHostPathVolumePath := func(volumeName string, path string) error {
+		idVol, exists := volumesMapping[volumeName]
+		if !exists {
+			return fmt.Errorf("volume %s not found", volumeName)
+		}
+		hostPath := cpt.sts.Spec.Template.Spec.Volumes[idVol].HostPath
+		if hostPath == nil {
+			return fmt.Errorf("volume %s is not a hostPath volume", volumeName)
+		}
+		hostPath.Path = path
+		return nil
+	}
+	setSecretVolumeName := func(volumeName string, secretName string) error {
+		idVol, exists := volumesMapping[volumeName]
+		if !exists {
+			return fmt.Errorf("volume %s not found", volumeName)
+		}
+		secret := cpt.sts.Spec.Template.Spec.Volumes[idVol].Secret
+		if secret == nil {
+			return fmt.Errorf("volume %s is not a secret volume", volumeName)
+		}
+		secret.SecretName = secretName
+		return nil
+	}
 
 	// metalk8s-registry-node-agent-archives: where the ISO files are stored
-	idVol, exists = volumesMapping["metalk8s-registry-node-agent-archives"]
-	if !exists {
-		return fmt.Errorf("volume metalk8s-registry-node-agent-archives not found")
-	}
-	cpt.sts.Spec.Template.Spec.Volumes[idVol].VolumeSource = corev1.VolumeSource{
-		HostPath: &corev1.HostPathVolumeSource{
-			Path: *registry.Spec.ArchivesPath,
-			Type: ptr.To(corev1.HostPathDirectory),
-		},
+	if err := setHostPathVolumePath("metalk8s-registry-node-agent-archives", *registry.Spec.ArchivesPath); err != nil {
+		return err
 	}
 
 	// metalk8s-registry-node-agent-solutions: where the solutions are mounted
-	idVol, exists = volumesMapping["metalk8s-registry-node-agent-solutions"]
-	if !exists {
-		return fmt.Errorf("volume metalk8s-registry-node-agent-solutions not found")
-	}
-	cpt.sts.Spec.Template.Spec.Volumes[idVol].VolumeSource = corev1.VolumeSource{
-		HostPath: &corev1.HostPathVolumeSource{
-			Path: *registry.Spec.SolutionsPath,
-			Type: ptr.To(corev1.HostPathDirectory),
-		},
+	if err := setHostPathVolumePath("metalk8s-registry-node-agent-solutions", *registry.Spec.SolutionsPath); err != nil {
+		return err
 	}
 
 	// External Server TLS Certificate
-	idVol, exists = volumesMapping[TLS_SERVER_EXTERNAL_CERTS_NAME]
-	if !exists {
-		return fmt.Errorf("volume %s not found", TLS_SERVER_EXTERNAL_CERTS_NAME)
-	}
-	cpt.sts.Spec.Template.Spec.Volumes[idVol].VolumeSource = corev1.VolumeSource{
-		Secret: &corev1.SecretVolumeSource{
-			SecretName: fmt.Sprintf("%s-%s", RNA_EXTERNAL_SERVER_CERTIFICATE_PREFIX, nodeToken),
-		},
+	if err := setSecretVolumeName(TLS_SERVER_EXTERNAL_CERTS_NAME,
+		fmt.Sprintf("%s-%s", RNA_EXTERNAL_SERVER_CERTIFICATE_PREFIX, nodeToken)); err != nil {
+		return err
 	}
 
 	// External Client CA mTLS Certificate
-	idVol, exists = volumesMapping[TLS_CLIENT_EXTERNAL_CERTS_NAME]
-	if !exists {
-		return fmt.Errorf("volume %s not found", TLS_CLIENT_EXTERNAL_CERTS_NAME)
-	}
-	cpt.sts.Spec.Template.Spec.Volumes[idVol].VolumeSource = corev1.VolumeSource{
-		Secret: &corev1.SecretVolumeSource{
-			SecretName: RNA_EXTERNAL_CLIENT_CERTIFICATE_PREFIX,
-		},
+	if err := setSecretVolumeName(TLS_CLIENT_EXTERNAL_CERTS_NAME, RNA_EXTERNAL_CLIENT_CERTIFICATE_PREFIX); err != nil {
+		return err
 	}
 
 	// Internal Server TLS Certificate
-	idVol, exists = volumesMapping[TLS_SERVER_INTERNAL_CERTS_NAME]
-	if !exists {
-		return fmt.Errorf("volume %s not found", TLS_SERVER_INTERNAL_CERTS_NAME)
-	}
-	cpt.sts.Spec.Template.Spec.Volumes[idVol].VolumeSource = corev1.VolumeSource{
-		Secret: &corev1.SecretVolumeSource{
-			SecretName: fmt.Sprintf("%s-%s", RNA_INTERNAL_SERVER_CERTIFICATE_PREFIX, nodeToken),
-		},
+	if err := setSecretVolumeName(TLS_SERVER_INTERNAL_CERTS_NAME,
+		fmt.Sprintf("%s-%s", RNA_INTERNAL_SERVER_CERTIFICATE_PREFIX, nodeToken)); err != nil {
+		return err
 	}
 
 	// Internal Client mTLS Certificate
-	idVol, exists = volumesMapping[TLS_CLIENT_INTERNAL_CERTS_NAME]
-	if !exists {
-		return fmt.Errorf("volume %s not found", TLS_CLIENT_INTERNAL_CERTS_NAME)
-	}
-	cpt.sts.Spec.Template.Spec.Volumes[idVol].VolumeSource = corev1.VolumeSource{
-		Secret: &corev1.SecretVolumeSource{
-			SecretName: fmt.Sprintf("%s-%s", RNA_INTERNAL_CLIENT_CERTIFICATE_PREFIX, nodeToken),
-		},
+	if err := setSecretVolumeName(TLS_CLIENT_INTERNAL_CERTS_NAME,
+		fmt.Sprintf("%s-%s", RNA_INTERNAL_CLIENT_CERTIFICATE_PREFIX, nodeToken)); err != nil {
+		return err
 	}
 
 	return nil

@@ -552,46 +552,7 @@ var _ = Describe("Registry Controller", func() {
 				ContainElement(corev1.EnvVar{Name: "HTTP_ADDR", Value: "10.0.0.3:5000"}),
 			)
 
-			By("checking the containerd mirror sync DaemonSet")
-			syncDS := &appsv1.DaemonSet{}
-			Eventually(func(g Gomega) {
-				g.Expect(k8sClient.Get(ctx, types.NamespacedName{
-					Name:      "metalk8s-registry-containerd-mirror-sync",
-					Namespace: "namespace-test-2",
-				}, syncDS)).To(Succeed())
-				g.Expect(syncDS.OwnerReferences).NotTo(BeEmpty())
-				container := syncDS.Spec.Template.Spec.Containers[0]
-				g.Expect(container.Image).To(Equal(
-					metalk8sv1alpha1.FileReflectorImageRegistry + "/" +
-						metalk8sv1alpha1.FileReflectorImageName + ":" + metalk8sv1alpha1.FileReflectorImageTag,
-				))
-				g.Expect(container.Args).To(Equal([]string{
-					"--source=/source",
-					"--target=/target",
-					"--file-mode=0644",
-					"--owner=0:0",
-				}))
-				g.Expect(syncDS.Spec.Template.Spec.NodeSelector).To(
-					Equal(map[string]string{"kubernetes.io/os": "linux"}),
-				)
-				g.Expect(container.SecurityContext.RunAsNonRoot).To(HaveValue(BeTrue()))
-				g.Expect(container.SecurityContext.Capabilities.Drop).To(
-					Equal([]corev1.Capability{"ALL"}),
-				)
-				g.Expect(container.SecurityContext.Capabilities.Add).To(ConsistOf(
-					corev1.Capability("DAC_OVERRIDE"),
-					corev1.Capability("FOWNER"),
-					corev1.Capability("CHOWN"),
-				))
-				g.Expect(container.VolumeMounts[0].MountPath).To(Equal("/source"))
-				g.Expect(container.VolumeMounts[0].ReadOnly).To(BeTrue())
-				volumes := syncDS.Spec.Template.Spec.Volumes
-				g.Expect(volumes[0].ConfigMap.Name).To(Equal("metalk8s-registry-containerd-mirror"))
-				g.Expect(volumes[0].ConfigMap.Items).To(BeEmpty())
-				g.Expect(volumes[1].HostPath.Path).To(Equal("/etc/containerd/certs.d/_default"))
-			}, timeout, interval).Should(Succeed())
-
-			By("checking the containerd mirror sync status")
+			By("waiting for the containerd mirror sync status")
 			Eventually(func(g Gomega) {
 				updated := &metalk8sv1alpha1.Registry{}
 				g.Expect(k8sClient.Get(ctx, typeNamespacedName, updated)).To(Succeed())
@@ -600,6 +561,63 @@ var _ = Describe("Registry Controller", func() {
 				// DaemonSet is vacuously ready.
 				g.Expect(updated.Status.MirrorSyncReady).To(HaveValue(BeTrue()))
 			}, timeout, interval).Should(Succeed())
+
+			By("checking the node agent StatefulSet volumes keep the base manifest settings")
+			rnaSts := &appsv1.StatefulSet{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{
+				Name:      "metalk8s-registry-node-agent-node-3",
+				Namespace: "namespace-test-2",
+			}, rnaSts)).To(Succeed())
+			volumes := map[string]corev1.VolumeSource{}
+			for _, volume := range rnaSts.Spec.Template.Spec.Volumes {
+				volumes[volume.Name] = volume.VolumeSource
+			}
+			archives := volumes["metalk8s-registry-node-agent-archives"]
+			Expect(archives.HostPath).NotTo(BeNil())
+			Expect(archives.HostPath.Path).To(Equal("/srv/scality/metalk8s/archives"))
+			// The type must come from the base manifest, not be forced by the operator.
+			Expect(archives.HostPath.Type).To(HaveValue(Equal(corev1.HostPathDirectoryOrCreate)))
+			solutions := volumes["metalk8s-registry-node-agent-solutions"]
+			Expect(solutions.HostPath).NotTo(BeNil())
+			Expect(solutions.HostPath.Path).To(Equal("/srv/scality/metalk8s/solutions"))
+			Expect(solutions.HostPath.Type).To(HaveValue(Equal(corev1.HostPathDirectoryOrCreate)))
+
+			By("checking the containerd mirror sync DaemonSet")
+			syncDS := &appsv1.DaemonSet{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{
+				Name:      "metalk8s-registry-containerd-mirror-sync",
+				Namespace: "namespace-test-2",
+			}, syncDS)).To(Succeed())
+			Expect(syncDS.OwnerReferences).NotTo(BeEmpty())
+			container := syncDS.Spec.Template.Spec.Containers[0]
+			Expect(container.Image).To(Equal(
+				metalk8sv1alpha1.FileReflectorImageRegistry + "/" +
+					metalk8sv1alpha1.FileReflectorImageName + ":" + metalk8sv1alpha1.FileReflectorImageTag,
+			))
+			Expect(container.Args).To(Equal([]string{
+				"--source=/source",
+				"--target=/target",
+				"--file-mode=0644",
+				"--owner=0:0",
+			}))
+			Expect(syncDS.Spec.Template.Spec.NodeSelector).To(
+				Equal(map[string]string{"kubernetes.io/os": "linux"}),
+			)
+			Expect(container.SecurityContext.RunAsNonRoot).To(HaveValue(BeTrue()))
+			Expect(container.SecurityContext.Capabilities.Drop).To(
+				Equal([]corev1.Capability{"ALL"}),
+			)
+			Expect(container.SecurityContext.Capabilities.Add).To(ConsistOf(
+				corev1.Capability("DAC_OVERRIDE"),
+				corev1.Capability("FOWNER"),
+				corev1.Capability("CHOWN"),
+			))
+			Expect(container.VolumeMounts[0].MountPath).To(Equal("/source"))
+			Expect(container.VolumeMounts[0].ReadOnly).To(BeTrue())
+			syncVolumes := syncDS.Spec.Template.Spec.Volumes
+			Expect(syncVolumes[0].ConfigMap.Name).To(Equal("metalk8s-registry-containerd-mirror"))
+			Expect(syncVolumes[0].ConfigMap.Items).To(BeEmpty())
+			Expect(syncVolumes[1].HostPath.Path).To(Equal("/etc/containerd/certs.d/_default"))
 
 			By("deleting the custom resource for the Kind Registry")
 			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
