@@ -19,11 +19,13 @@ package k8s
 import (
 	"context"
 	"os"
+	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/gstruct"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	cmv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
@@ -1521,6 +1523,101 @@ var _ = Describe("Registry Controller", func() {
 			}, ds)).To(Succeed())
 			Expect(ds.Spec.Template.Spec.Tolerations).To(BeEmpty())
 			Expect(ds.Spec.Template.Spec.ImagePullSecrets).To(BeEmpty())
+		})
+	})
+
+	Context("When reconciling a registry with an FQDN node name", func() {
+		It("creates per-node resources with valid shortened names", func() {
+			resourceName := "test-fqdn-node"
+			namespace := "namespace-fqdn-node"
+			fqdnNodeName := "ip-172-30-200-101.eu-north-1.compute.internal"
+
+			By("creating a node with an EKS-style FQDN name")
+			node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{
+				Name:   fqdnNodeName,
+				Labels: map[string]string{"registry": "fqdn-node"},
+			}}
+			Expect(k8sClient.Create(ctx, node)).To(Succeed())
+			node.Status.Addresses = []corev1.NodeAddress{{Type: corev1.NodeInternalIP, Address: "172.30.200.101"}}
+			Expect(k8sClient.Status().Update(ctx, node)).To(Succeed())
+			DeferCleanup(func() { _ = k8sClient.Delete(ctx, node) })
+
+			By("creating the Registry")
+			resource := &metalk8sv1alpha1.Registry{ObjectMeta: metav1.ObjectMeta{Name: resourceName}}
+			_, err := controllerutil.CreateOrUpdate(ctx, k8sClient, resource, func() error {
+				resource.Spec = metalk8sv1alpha1.RegistrySpec{
+					LogLevel:      ptr.To("info"),
+					ArchivesPath:  ptr.To("/srv/scality/metalk8s/archives"),
+					SolutionsPath: ptr.To("/srv/scality/metalk8s/solutions"),
+					Namespace:     ptr.To(namespace),
+					NodeSelector:  map[string]string{"registry": "fqdn-node"},
+					Server: metalk8sv1alpha1.RegistryServerSpec{
+						CertificateIssuerRef: cmmetav1.ObjectReference{
+							Name: "registry-server-issuer",
+							Kind: "ClusterIssuer",
+						},
+					},
+					Agent: metalk8sv1alpha1.RegistryNodeAgentSpec{
+						Authentication: metalk8sv1alpha1.AuthenticationSpec{
+							MTLS: metalk8sv1alpha1.MTLSAuthenticationSpec{
+								CASecretRef: corev1.SecretReference{
+									Name:      "registry-agent-mtls-ca",
+									Namespace: secretNamespace,
+								},
+							},
+						},
+					},
+				}
+				return nil
+			})
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(func() { _ = k8sClient.Delete(ctx, resource) })
+
+			By("checking the registry becomes available")
+			Eventually(func(g Gomega) {
+				updated := &metalk8sv1alpha1.Registry{}
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: resourceName}, updated)).To(Succeed())
+				g.Expect(updated.Status.Available).To(HaveValue(BeTrue()))
+				g.Expect(updated.Status.SelectedNodes).To(ConsistOf(fqdnNodeName))
+			}, timeout, interval).Should(Succeed())
+
+			By("checking the per-node StatefulSets carry valid shortened names")
+			stsList := &appsv1.StatefulSetList{}
+			Expect(k8sClient.List(ctx, stsList,
+				client.InNamespace(namespace),
+				client.MatchingLabels(map[string]string{"node": fqdnNodeName}),
+			)).To(Succeed())
+			Expect(stsList.Items).To(HaveLen(2))
+			for _, sts := range stsList.Items {
+				Expect(len(sts.Name)).To(BeNumerically("<=", 52))
+				Expect(sts.Name).NotTo(ContainSubstring("."))
+			}
+
+			By("checking the per-node Service carries a valid shortened name")
+			serviceList := &corev1.ServiceList{}
+			Expect(k8sClient.List(ctx, serviceList,
+				client.InNamespace(namespace),
+				client.MatchingLabels(map[string]string{"node": fqdnNodeName}),
+			)).To(Succeed())
+			Expect(serviceList.Items).To(HaveLen(1))
+			Expect(len(serviceList.Items[0].Name)).To(BeNumerically("<=", 63))
+			Expect(serviceList.Items[0].Name).NotTo(ContainSubstring("."))
+
+			By("checking the per-node Certificates carry valid CNs")
+			certList := &cmv1.CertificateList{}
+			Expect(k8sClient.List(ctx, certList,
+				client.InNamespace(namespace),
+				client.MatchingLabels(map[string]string{"node": fqdnNodeName}),
+			)).To(Succeed())
+			Expect(certList.Items).NotTo(BeEmpty())
+			for _, cert := range certList.Items {
+				Expect(len(cert.Spec.CommonName)).To(BeNumerically("<=", 64))
+				for _, dnsName := range cert.Spec.DNSNames {
+					for _, label := range strings.Split(dnsName, ".") {
+						Expect(len(label)).To(BeNumerically("<=", 63))
+					}
+				}
+			}
 		})
 	})
 })
