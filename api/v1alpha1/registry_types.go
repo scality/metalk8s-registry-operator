@@ -27,7 +27,7 @@ import (
 
 const (
 	RegistryServerImageRegistry    = "ghcr.io/scality"
-	RegistryServerImageName        = "metalk8s-registry-server"
+	RegistryServerImageName        = "static-oci-registry"
 	RegistryServerImageTag         = "v1.0.0"
 	RegistryNodeAgentImageRegistry = "ghcr.io/scality"
 	RegistryNodeAgentImageName     = "metalk8s-registry-node-agent"
