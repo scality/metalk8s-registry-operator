@@ -46,26 +46,38 @@ var _ = Describe("MirrorConfig Webhook", func() {
 	})
 
 	Context("When creating or updating MirrorConfig under Validating Webhook", func() {
-		// TODO (user): Add logic for validating webhooks
-		// Example:
-		// It("Should deny creation if a required field is missing", func() {
-		//     By("simulating an invalid creation scenario")
-		//     obj.SomeRequiredField = ""
-		//     Expect(validator.ValidateCreate(ctx, obj)).Error().To(HaveOccurred())
-		// })
-		//
-		// It("Should admit creation if all required fields are present", func() {
-		//     By("simulating an invalid creation scenario")
-		//     obj.SomeRequiredField = "valid_value"
-		//     Expect(validator.ValidateCreate(ctx, obj)).To(BeNil())
-		// })
-		//
-		// It("Should validate updates correctly", func() {
-		//     By("simulating a valid update scenario")
-		//     oldObj.SomeRequiredField = "updated_value"
-		//     obj.SomeRequiredField = "updated_value"
-		//     Expect(validator.ValidateUpdate(ctx, oldObj, obj)).To(BeNil())
-		// })
+		makeRegistries := func(prefixes ...string) []metalk8sv1alpha1.MirrorRegistry {
+			registries := make([]metalk8sv1alpha1.MirrorRegistry, 0, len(prefixes))
+			for _, prefix := range prefixes {
+				registries = append(registries, metalk8sv1alpha1.MirrorRegistry{Prefix: prefix})
+			}
+			return registries
+		}
+
+		It("Should admit creation with unique prefixes", func() {
+			obj.Spec.Registries = makeRegistries("docker.io", "ghcr.io")
+			_, err := validator.ValidateCreate(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("Should deny creation with duplicate prefixes", func() {
+			obj.Spec.Registries = makeRegistries("docker.io", "docker.io")
+			_, err := validator.ValidateCreate(ctx, obj)
+			Expect(err).To(MatchError(ContainSubstring("duplicate registry prefix")))
+		})
+
+		It("Should deny update introducing duplicate prefixes", func() {
+			oldObj.Spec.Registries = makeRegistries("docker.io")
+			obj.Spec.Registries = makeRegistries("ghcr.io", "ghcr.io")
+			_, err := validator.ValidateUpdate(ctx, oldObj, obj)
+			Expect(err).To(MatchError(ContainSubstring("duplicate registry prefix")))
+		})
+
+		It("Should admit an empty registries list", func() {
+			obj.Spec.Registries = nil
+			_, err := validator.ValidateCreate(ctx, obj)
+			Expect(err).NotTo(HaveOccurred())
+		})
 	})
 
 })

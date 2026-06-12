@@ -40,8 +40,6 @@ func SetupMirrorConfigWebhookWithManager(mgr ctrl.Manager) error {
 		Complete()
 }
 
-// TODO(user): EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-
 // TODO(user): change verbs to "verbs=create;update;delete" if you want to enable deletion validation.
 // NOTE: The 'path' attribute must follow a specific pattern and should not be modified directly here.
 // Modifying the path for an invalid path can cause API server errors; failing to locate the webhook.
@@ -66,9 +64,7 @@ func (v *MirrorConfigCustomValidator) ValidateCreate(_ context.Context, obj runt
 	}
 	mirrorconfiglog.Info("Validation for MirrorConfig upon creation", "name", mirrorconfig.GetName())
 
-	// TODO(user): fill in your validation logic upon object creation.
-
-	return nil, nil
+	return nil, validateMirrorConfig(mirrorconfig)
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type MirrorConfig.
@@ -79,9 +75,7 @@ func (v *MirrorConfigCustomValidator) ValidateUpdate(_ context.Context, oldObj, 
 	}
 	mirrorconfiglog.Info("Validation for MirrorConfig upon update", "name", mirrorconfig.GetName())
 
-	// TODO(user): fill in your validation logic upon object update.
-
-	return nil, nil
+	return nil, validateMirrorConfig(mirrorconfig)
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type MirrorConfig.
@@ -92,7 +86,19 @@ func (v *MirrorConfigCustomValidator) ValidateDelete(ctx context.Context, obj ru
 	}
 	mirrorconfiglog.Info("Validation for MirrorConfig upon deletion", "name", mirrorconfig.GetName())
 
-	// TODO(user): fill in your validation logic upon object deletion.
-
+	// Careful: not activated by default
+	// To enable it think about changing "verbs=create;update" to "verbs=create;update;delete" in "+kubebuilder:webhook" annotation above
 	return nil, nil
+}
+
+// validateMirrorConfig checks that the registry prefixes are unique within the MirrorConfig.
+func validateMirrorConfig(mirrorConfig *metalk8sv1alpha1.MirrorConfig) error {
+	seen := map[string]struct{}{}
+	for _, mirrorRegistry := range mirrorConfig.Spec.Registries {
+		if _, duplicated := seen[mirrorRegistry.Prefix]; duplicated {
+			return fmt.Errorf("duplicate registry prefix %q", mirrorRegistry.Prefix)
+		}
+		seen[mirrorRegistry.Prefix] = struct{}{}
+	}
+	return nil
 }
