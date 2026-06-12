@@ -36,6 +36,26 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
+      path: /validate-metalk8s-scality-com-v1alpha1-mirrorconfig
+  failurePolicy: Fail
+  name: vmirrorconfig-v1alpha1.kb.io
+  rules:
+  - apiGroups:
+    - metalk8s.scality.com
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - mirrorconfigs
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
       path: /validate-metalk8s-scality-com-v1alpha1-registry
   failurePolicy: Fail
   name: vregistry-v1alpha1.kb.io
