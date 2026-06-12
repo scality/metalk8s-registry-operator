@@ -174,6 +174,33 @@ status:
   targetReplicas: 2
 ```
 
+### `MirrorConfig` Custom Resource
+
+Namespaced opt-in for in-pod OCI clients (oras-go, go-containerregistry,
+containers/image) that pull directly without going through containerd. Creating
+a `MirrorConfig` makes the operator render a ConfigMap (named after the CR, in
+the same namespace) with:
+
+| Key | Content |
+|-----|---------|
+| `endpoint` | In-cluster registry endpoint (`metalk8s-registry-server.<ns>.svc:5000`) |
+| `registries.conf` | containers/image mirror config (one `[[registry]]` block per `spec.registries[].prefix`) |
+| `ca.crt` | CA to trust the internal registry TLS |
+
+The spec includes:
+
+| Field | Description |
+|-------|-------------|
+| `spec.registries` | Upstream registries to mirror (list of `{prefix}` objects, unique prefixes) |
+
+The Status includes:
+
+| Field | Description |
+|-------|-------------|
+| `status.caSecretRef` | Secret the registry CA was read from |
+| `status.observedRegistries` | Prefixes rendered into the ConfigMap |
+| `status.conditions` | `Ready` is True once the registry is ready and the ConfigMap is rendered. Nothing is rendered while the registry is not ready; an already rendered ConfigMap is kept as-is if the registry degrades |
+
 ## Building
 
 ```bash
