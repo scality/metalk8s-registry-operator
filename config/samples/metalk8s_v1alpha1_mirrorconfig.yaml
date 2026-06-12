@@ -6,4 +6,7 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
   name: mirrorconfig-sample
 spec:
-  # TODO(user): Add fields here
+  registries:
+    - prefix: docker.io
+    - prefix: ghcr.io
+    - prefix: quay.io

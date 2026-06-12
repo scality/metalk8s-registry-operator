@@ -17,25 +17,38 @@ limitations under the License.
 package v1alpha1
 
 import (
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
+const (
+	MirrorConfigReasonConfigMapRendered  = "ConfigMapRendered"
+	MirrorConfigReasonRegistryNotReady   = "RegistryNotReady"
+	MirrorConfigReasonMultipleRegistries = "MultipleRegistries"
+)
+
+type MirrorRegistry struct {
+	// Prefix of the upstream registry to mirror (e.g. "docker.io").
+	// +kubebuilder:validation:MinLength=1
+	Prefix string `json:"prefix"`
+}
 
 // MirrorConfigSpec defines the desired state of MirrorConfig.
 type MirrorConfigSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-
-	// Foo is an example field of MirrorConfig. Edit mirrorconfig_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
+	// Registries lists the upstream registries the workload pulls through the mirror.
+	// +kubebuilder:validation:Optional
+	Registries []MirrorRegistry `json:"registries,omitempty"`
 }
 
 // MirrorConfigStatus defines the observed state of MirrorConfig.
 type MirrorConfigStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	// CASecretRef references the Secret the registry CA was read from.
+	CASecretRef *corev1.SecretReference `json:"caSecretRef,omitempty"`
+	// ObservedRegistries lists the prefixes rendered into the ConfigMap.
+	ObservedRegistries []string `json:"observedRegistries,omitempty"`
+	// Conditions of the MirrorConfig.
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
 // +kubebuilder:object:root=true
@@ -61,4 +74,20 @@ type MirrorConfigList struct {
 
 func init() {
 	SchemeBuilder.Register(&MirrorConfig{}, &MirrorConfigList{})
+}
+
+// SetReady sets the Ready condition of the MirrorConfig.
+func (m *MirrorConfig) SetReady(ready bool, reason string, message string) {
+	condition := metav1.Condition{
+		Type:               "Ready",
+		Status:             metav1.ConditionTrue,
+		LastTransitionTime: metav1.Now(),
+		Reason:             reason,
+		Message:            message,
+		ObservedGeneration: m.Generation,
+	}
+	if !ready {
+		condition.Status = metav1.ConditionFalse
+	}
+	meta.SetStatusCondition(&m.Status.Conditions, condition)
 }
