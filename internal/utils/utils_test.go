@@ -53,3 +53,20 @@ var _ = Describe("GenerateContainerdHostsToml", func() {
 `))
 	})
 })
+
+var _ = Describe("GenerateRegistriesConf", func() {
+	It("returns an empty string when there are no prefixes", func() {
+		Expect(GenerateRegistriesConf("registry.example.svc:5000", nil)).To(Equal(""))
+	})
+
+	It("renders one block per prefix, preserving order", func() {
+		got := GenerateRegistriesConf("registry.example.svc:5000", []string{"docker.io", "ghcr.io"})
+		Expect(got).To(Equal(`[[registry]]
+prefix = "docker.io"
+location = "registry.example.svc:5000/docker.io"
+[[registry]]
+prefix = "ghcr.io"
+location = "registry.example.svc:5000/ghcr.io"
+`))
+	})
+})
