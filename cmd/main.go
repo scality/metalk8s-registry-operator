@@ -285,6 +285,13 @@ func main() {
 			os.Exit(1)
 		}
 	}
+	if err := (&controller.MirrorConfigReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "MirrorConfig")
+		os.Exit(1)
+	}
 	// +kubebuilder:scaffold:builder
 
 	// Create a field index for the SolutionArchive object

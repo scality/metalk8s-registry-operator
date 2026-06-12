@@ -2,4 +2,5 @@
 resources:
 - metalk8s_v1alpha1_solutionarchive.yaml
 - metalk8s_v1alpha1_registry.yaml
+- metalk8s_v1alpha1_mirrorconfig.yaml
 # +kubebuilder:scaffold:manifestskustomizesamples

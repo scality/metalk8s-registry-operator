@@ -4,6 +4,7 @@
 resources:
 - bases/metalk8s.scality.com_solutionarchives.yaml
 - bases/metalk8s.scality.com_registries.yaml
+- bases/metalk8s.scality.com_mirrorconfigs.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 patches:

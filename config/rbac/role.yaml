@@ -101,29 +101,7 @@ rules:
 - apiGroups:
   - metalk8s.scality.com
   resources:
-  - nodesolutionarchives
-  verbs:
-  - '*'
-- apiGroups:
-  - metalk8s.scality.com
-  resources:
-  - nodesolutionarchives/finalizers
-  verbs:
-  - delete
-  - update
-- apiGroups:
-  - metalk8s.scality.com
-  resources:
-  - nodesolutionarchives/status
-  - registries/status
-  - solutionarchives/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - metalk8s.scality.com
-  resources:
+  - mirrorconfigs
   - registries
   - solutionarchives
   verbs:
@@ -137,9 +115,34 @@ rules:
 - apiGroups:
   - metalk8s.scality.com
   resources:
+  - mirrorconfigs/finalizers
   - registries/finalizers
   - solutionarchives/finalizers
   verbs:
+  - update
+- apiGroups:
+  - metalk8s.scality.com
+  resources:
+  - mirrorconfigs/status
+  - nodesolutionarchives/status
+  - registries/status
+  - solutionarchives/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - metalk8s.scality.com
+  resources:
+  - nodesolutionarchives
+  verbs:
+  - '*'
+- apiGroups:
+  - metalk8s.scality.com
+  resources:
+  - nodesolutionarchives/finalizers
+  verbs:
+  - delete
   - update
 - apiGroups:
   - rbac.authorization.k8s.io
