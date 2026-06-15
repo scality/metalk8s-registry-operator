@@ -125,6 +125,12 @@ var _ = BeforeSuite(func() {
 	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 
+	err = (&controller.MirrorConfigReconciler{
+		Client: k8sManager.GetClient(),
+		Scheme: k8sClient.Scheme(),
+	}).SetupWithManager(k8sManager)
+	Expect(err).ToNot(HaveOccurred())
+
 	// Create a field index for the NodeSolutionArchive object
 	// This will allow us to quickly find the NodeSolutionArchive object by its Name and Version
 	f := func(rawObj client.Object) []string {

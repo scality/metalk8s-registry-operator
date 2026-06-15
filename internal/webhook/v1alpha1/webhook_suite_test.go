@@ -30,7 +30,6 @@ import (
 	. "github.com/onsi/gomega"
 
 	cmv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
-	metalk8sv1alpha1 "github.com/scality/metalk8s-registry-operator/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -43,6 +42,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
+
+	metalk8sv1alpha1 "github.com/scality/metalk8s-registry-operator/api/v1alpha1"
 
 	"github.com/scality/metalk8s-registry-operator/internal/utils"
 	// +kubebuilder:scaffold:imports
@@ -138,6 +139,9 @@ var _ = BeforeSuite(func() {
 	// Use the manager's client so it has the cache and indexes (required for MatchingFields in the webhook)
 	k8sClient = mgr.GetClient()
 	Expect(k8sClient).NotTo(BeNil())
+
+	err = SetupMirrorConfigWebhookWithManager(mgr)
+	Expect(err).NotTo(HaveOccurred())
 
 	// +kubebuilder:scaffold:webhook
 

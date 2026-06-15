@@ -174,6 +174,79 @@ status:
   targetReplicas: 2
 ```
 
+### `MirrorConfig` Custom Resource
+
+Namespaced opt-in for in-pod OCI clients (oras-go, go-containerregistry,
+containers/image) that pull directly without going through containerd. Creating
+a `MirrorConfig` makes the operator render a ConfigMap (named after the CR, in
+the same namespace) with:
+
+| Key | Content |
+|-----|---------|
+| `endpoint` | In-cluster registry endpoint (`metalk8s-registry-server.<ns>.svc:5000`) |
+| `registries.conf` | containers/image mirror config (one `[[registry]]` block per `spec.registries[].prefix`) |
+| `ca.crt` | CA to trust the internal registry TLS |
+
+The spec includes:
+
+| Field | Description |
+|-------|-------------|
+| `spec.registries` | Upstream registries to mirror (list of `{prefix}` objects, unique prefixes) |
+
+The Status includes:
+
+| Field | Description |
+|-------|-------------|
+| `status.caSecretRef` | Secret the registry CA was read from |
+| `status.observedRegistries` | Prefixes rendered into the ConfigMap |
+| `status.conditions` | `Ready` is True once the registry is ready and the ConfigMap is rendered. Nothing is rendered while the registry is not ready; an already rendered ConfigMap is kept as-is if the registry degrades |
+
+**Consuming the ConfigMap**
+
+`containers/image` tools (skopeo, Podman, ORAS CLI v3) read the mirror config from
+`/etc/containers/registries.conf` and look the CA up in
+`/etc/containers/certs.d/<endpoint>/ca.crt`. The endpoint only depends on the
+registry namespace (`metalk8s-registry-server.<registry-ns>.svc:5000`), so the
+mount paths are known at deploy time (template the registry namespace in your
+chart; with the default namespace the path is the one below):
+
+```yaml
+volumeMounts:
+  - name: mirror
+    mountPath: /etc/containers/registries.conf
+    subPath: registries.conf
+  - name: mirror
+    mountPath: /etc/containers/certs.d/metalk8s-registry-server.metalk8s-registry.svc:5000/ca.crt
+    subPath: ca.crt
+volumes:
+  - name: mirror
+    configMap:
+      name: <mirrorconfig-name>
+```
+
+Alternatively, mount the whole ConfigMap at a static path (e.g. `/etc/mirror`)
+and point the tool at the CA explicitly -- no endpoint-dependent path at all:
+
+- `skopeo --cert-dir=/etc/mirror ...` / `podman --cert-dir=/etc/mirror ...`
+- `oras --ca-file /etc/mirror/ca.crt ...`
+- Go tools also honor `SSL_CERT_DIR=/etc/ssl/certs:/etc/mirror`
+
+Library clients that ignore `registries.conf` (oras-go v2, go-containerregistry)
+build path-based references from the `endpoint` key
+(`<endpoint>/<registry>/<repository>`) and load `ca.crt` into their client TLS
+configuration (`containers/image`: `SystemContext.DockerCertPath`; others:
+`tls.Config.RootCAs`). The endpoint can be read from the mounted file or
+injected as an environment variable:
+
+```yaml
+env:
+  - name: REGISTRY_MIRROR_ENDPOINT
+    valueFrom:
+      configMapKeyRef:
+        name: <mirrorconfig-name>
+        key: endpoint
+```
+
 ## Building
 
 ```bash

@@ -32,6 +32,17 @@ func GenerateContainerdHostsToml(mirrorHosts []string) string {
 	return b.String()
 }
 
+// GenerateRegistriesConf renders a containers/image registries.conf with one
+// [[registry]] block per prefix, rewriting to "<endpoint>/<prefix>".
+// Order is preserved. An empty prefix list yields an empty string.
+func GenerateRegistriesConf(endpoint string, prefixes []string) string {
+	var b strings.Builder
+	for _, prefix := range prefixes {
+		fmt.Fprintf(&b, "[[registry]]\nprefix = \"%s\"\nlocation = \"%s/%s\"\n", prefix, endpoint, prefix)
+	}
+	return b.String()
+}
+
 // CleanResource cleans the resource by setting the managed fields, resource version, UID, and creation timestamp to empty
 func CleanResource(obj client.Object) {
 	obj.SetManagedFields(nil)

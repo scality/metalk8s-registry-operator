@@ -1018,26 +1018,28 @@ func getSortedNodeInternalIPs(nodes []corev1.Node) []string {
 	return ips
 }
 
-// getRegistryServerCA returns the Registry Server CA (ca.crt) read from the first
-// available external server certificate secret. All per-node certs share the same
-// issuer/CA. Returns "" when none is available yet.
-func (r *RegistryReconciler) getRegistryServerCA(ctx context.Context, registryNamespace string, nodes []corev1.Node) string {
-	for i := range nodes {
+// getRegistryServerCA returns the Registry Server CA (ca.crt) and the name of
+// the Secret it was read from, looking at the per-node external server
+// certificate secrets. All per-node certs share the same issuer/CA.
+// Returns empty strings when none is available yet.
+func getRegistryServerCA(ctx context.Context, c client.Client, registryNamespace string, nodeNames []string) (string, string) {
+	for _, nodeName := range nodeNames {
 		secret := &corev1.Secret{}
-		if err := r.Get(ctx, types.NamespacedName{
-			Name:      fmt.Sprintf("%s-%s", RS_EXTERNAL_SERVER_CERTIFICATE_PREFIX, safeNodeName(nodes[i].Name)),
+		secretName := fmt.Sprintf("%s-%s", RS_EXTERNAL_SERVER_CERTIFICATE_PREFIX, safeNodeName(nodeName))
+		if err := c.Get(ctx, types.NamespacedName{
+			Name:      secretName,
 			Namespace: registryNamespace,
 		}, secret); err != nil {
 			if !apierrors.IsNotFound(err) {
-				logf.FromContext(ctx).Error(err, "failed to read registry server CA secret", "node", nodes[i].Name)
+				logf.FromContext(ctx).Error(err, "failed to read registry server CA secret", "node", nodeName)
 			}
 			continue
 		}
 		if ca, ok := secret.Data["ca.crt"]; ok && len(ca) > 0 {
-			return string(ca)
+			return string(ca), secretName
 		}
 	}
-	return ""
+	return "", ""
 }
 
 // reconcileContainerdMirrorConfigMap creates/updates (or deletes when disabled) the
@@ -1063,7 +1065,11 @@ func (r *RegistryReconciler) reconcileContainerdMirrorConfigMap(ctx context.Cont
 		mirrorHosts = append(mirrorHosts, fmt.Sprintf("https://%s:%d", ip, RS_SERVER_PORT))
 	}
 
-	caCrt := r.getRegistryServerCA(ctx, registryNamespace, nodes)
+	nodeNames := make([]string, 0, len(nodes))
+	for i := range nodes {
+		nodeNames = append(nodeNames, nodes[i].Name)
+	}
+	caCrt, _ := getRegistryServerCA(ctx, r.Client, registryNamespace, nodeNames)
 
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, configMap, func() error {
 		if err := controllerutil.SetControllerReference(registry, configMap, r.Scheme); err != nil {
