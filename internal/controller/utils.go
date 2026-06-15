@@ -18,6 +18,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -31,6 +32,7 @@ const (
 	ORGANIZATION_NAME                      = "metalk8s"
 	SSA_FIELD_OWNER_NAME                   = "registry-operator"
 	CONTAINERD_MIRROR_CONFIGMAP_NAME       = "metalk8s-registry-containerd-mirror"
+	CONTAINERD_MIRROR_SYNC_DAEMONSET_NAME  = "metalk8s-registry-containerd-mirror-sync"
 	CERTS_D_SUBDIR_ANNOTATION              = "registry.metalk8s.scality.com/certs-d-subdir"
 	CERTS_D_SUBDIR_VALUE                   = "_default"
 	MIRROR_HOSTS_TOML_KEY                  = "hosts.toml"
@@ -64,7 +66,27 @@ func getHash32Name(input string) string {
 	hasher := fnv.New32a()
 	_, _ = hasher.Write([]byte(input)) //nolint:errcheck // Write() never returns an error for the FNV implementation
 	hashSum := hasher.Sum32()
-	return fmt.Sprintf("%x", hashSum)
+	return fmt.Sprintf("%08x", hashSum)
+}
+
+// safeNodeName returns a token derived from the node name that is safe to embed
+// in the per-node resource names: no dots and short enough to keep
+// "<prefix>-<token>" (plus the StatefulSet pod ordinal and controller-revision
+// suffixes) within the 63-character DNS label budget. Short names without dots
+// are kept as-is; anything else is sanitized, truncated and suffixed with a
+// hash of the original name to remain unique and deterministic.
+// Never use it for the "node" label, which carries the real node name.
+func safeNodeName(nodeName string) string {
+	const maxTokenLen = 23
+	if len(nodeName) <= maxTokenLen && !strings.Contains(nodeName, ".") {
+		return nodeName
+	}
+	hash := getHash32Name(nodeName)
+	sanitized := strings.ReplaceAll(nodeName, ".", "-")
+	if maxBase := maxTokenLen - len(hash) - 1; len(sanitized) > maxBase {
+		sanitized = sanitized[:maxBase]
+	}
+	return strings.TrimRight(sanitized, "-") + "-" + hash
 }
 
 // ReconcileRNAGenericResources reconciles the generic resources of the Registry Node Agent structure
@@ -424,6 +446,7 @@ func (cpt componentSts) setNodeLabel(nodeName string) {
 
 // ReconcileRNAStatefulSet reconciles a Registry Node Agent as a StatefulSet on the specified node
 func (r *RegistryReconciler) ReconcileRNAStatefulSet(ctx context.Context, registryNamespace string, nodeName string, registry *metalk8sv1alpha1.Registry) error {
+	nodeToken := safeNodeName(nodeName)
 	registryNodeAgentStatefulSet := componentSts{r.RNA.StatefulSets[0].DeepCopy()}
 
 	// Check for existing StatefulSet on the node
@@ -442,7 +465,7 @@ func (r *RegistryReconciler) ReconcileRNAStatefulSet(ctx context.Context, regist
 	}
 
 	// Set metadata on StatefulSet
-	registryNodeAgentStatefulSet.sts.SetName(fmt.Sprintf("%s-%s", RNA_STATEFULSET_PREFIX, nodeName))
+	registryNodeAgentStatefulSet.sts.SetName(fmt.Sprintf("%s-%s", RNA_STATEFULSET_PREFIX, nodeToken))
 	registryNodeAgentStatefulSet.sts.SetNamespace(registryNamespace)
 	registryNodeAgentStatefulSet.sts.Labels["node"] = nodeName
 	if err := controllerutil.SetControllerReference(registry, registryNodeAgentStatefulSet.sts, r.Scheme); err != nil {
@@ -494,9 +517,10 @@ func (r *RegistryReconciler) ReconcileRNAStatefulSet(ctx context.Context, regist
 
 // ReconcileRNAService reconciles a Registry Node Agent service
 func (r *RegistryReconciler) ReconcileRNAService(ctx context.Context, registryNamespace string, nodeName string, registry *metalk8sv1alpha1.Registry) error {
+	nodeToken := safeNodeName(nodeName)
 	registryNodeAgentService := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      fmt.Sprintf("%s-%s", RNA_INTERNAL_SERVER_CERTIFICATE_CN, nodeName),
+			Name:      fmt.Sprintf("%s-%s", RNA_INTERNAL_SERVER_CERTIFICATE_CN, nodeToken),
 			Namespace: registryNamespace,
 		},
 	}
@@ -533,9 +557,10 @@ func (r *RegistryReconciler) ReconcileRNAService(ctx context.Context, registryNa
 
 // ReconcileRNAInternalServerCertificate reconciles an internal server certificate for the Registry Node Agent
 func (r *RegistryReconciler) ReconcileRNAInternalServerCertificate(ctx context.Context, registryNamespace string, nodeName string, registry *metalk8sv1alpha1.Registry) error {
+	nodeToken := safeNodeName(nodeName)
 	registryNodeAgentServerCertificate := &cmv1.Certificate{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      fmt.Sprintf("%s-%s", RNA_INTERNAL_SERVER_CERTIFICATE_PREFIX, nodeName),
+			Name:      fmt.Sprintf("%s-%s", RNA_INTERNAL_SERVER_CERTIFICATE_PREFIX, nodeToken),
 			Namespace: registryNamespace,
 		},
 	}
@@ -549,17 +574,17 @@ func (r *RegistryReconciler) ReconcileRNAInternalServerCertificate(ctx context.C
 		if err != nil {
 			return err
 		}
-		registryNodeAgentServerCertificate.Spec.SecretName = fmt.Sprintf("%s-%s", RNA_INTERNAL_SERVER_CERTIFICATE_PREFIX, nodeName)
+		registryNodeAgentServerCertificate.Spec.SecretName = fmt.Sprintf("%s-%s", RNA_INTERNAL_SERVER_CERTIFICATE_PREFIX, nodeToken)
 		registryNodeAgentServerCertificate.Spec.IssuerRef = cmmetav1.IssuerReference{
 			Name: RNA_CA_ISSUER_NAME,
 			Kind: RNA_CA_ISSUER_KIND,
 		}
-		registryNodeAgentServerCertificate.Spec.CommonName = fmt.Sprintf("%s-%s", RNA_INTERNAL_SERVER_CERTIFICATE_CN, nodeName)
+		registryNodeAgentServerCertificate.Spec.CommonName = fmt.Sprintf("%s-%s", RNA_INTERNAL_SERVER_CERTIFICATE_CN, nodeToken)
 		registryNodeAgentServerCertificate.Spec.DNSNames = []string{
-			fmt.Sprintf("%s-%s", RNA_INTERNAL_SERVER_CERTIFICATE_CN, nodeName),
-			fmt.Sprintf("%s-%s.%s", RNA_INTERNAL_SERVER_CERTIFICATE_CN, nodeName, registryNamespace),
-			fmt.Sprintf("%s-%s.%s.svc", RNA_INTERNAL_SERVER_CERTIFICATE_CN, nodeName, registryNamespace),
-			fmt.Sprintf("%s-%s.%s.svc.cluster.local", RNA_INTERNAL_SERVER_CERTIFICATE_CN, nodeName, registryNamespace),
+			fmt.Sprintf("%s-%s", RNA_INTERNAL_SERVER_CERTIFICATE_CN, nodeToken),
+			fmt.Sprintf("%s-%s.%s", RNA_INTERNAL_SERVER_CERTIFICATE_CN, nodeToken, registryNamespace),
+			fmt.Sprintf("%s-%s.%s.svc", RNA_INTERNAL_SERVER_CERTIFICATE_CN, nodeToken, registryNamespace),
+			fmt.Sprintf("%s-%s.%s.svc.cluster.local", RNA_INTERNAL_SERVER_CERTIFICATE_CN, nodeToken, registryNamespace),
 		}
 		registryNodeAgentServerCertificate.Spec.Usages = []cmv1.KeyUsage{
 			cmv1.UsageKeyEncipherment,
@@ -573,9 +598,10 @@ func (r *RegistryReconciler) ReconcileRNAInternalServerCertificate(ctx context.C
 
 // ReconcileRNAExternalServerCertificate reconciles an external server certificate for the Registry Node Agent
 func (r *RegistryReconciler) ReconcileRNAExternalServerCertificate(ctx context.Context, registryNamespace string, nodeName string, nodeIP string, registry *metalk8sv1alpha1.Registry) error {
+	nodeToken := safeNodeName(nodeName)
 	registryNodeAgentServerCertificate := &cmv1.Certificate{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      fmt.Sprintf("%s-%s", RNA_EXTERNAL_SERVER_CERTIFICATE_PREFIX, nodeName),
+			Name:      fmt.Sprintf("%s-%s", RNA_EXTERNAL_SERVER_CERTIFICATE_PREFIX, nodeToken),
 			Namespace: registryNamespace,
 		},
 	}
@@ -589,12 +615,12 @@ func (r *RegistryReconciler) ReconcileRNAExternalServerCertificate(ctx context.C
 		if err != nil {
 			return err
 		}
-		registryNodeAgentServerCertificate.Spec.SecretName = fmt.Sprintf("%s-%s", RNA_EXTERNAL_SERVER_CERTIFICATE_PREFIX, nodeName)
+		registryNodeAgentServerCertificate.Spec.SecretName = fmt.Sprintf("%s-%s", RNA_EXTERNAL_SERVER_CERTIFICATE_PREFIX, nodeToken)
 		registryNodeAgentServerCertificate.Spec.IssuerRef = cmmetav1.IssuerReference{
 			Name: registry.Spec.Agent.CertificateIssuerRef.Name,
 			Kind: registry.Spec.Agent.CertificateIssuerRef.Kind,
 		}
-		registryNodeAgentServerCertificate.Spec.CommonName = fmt.Sprintf("%s-%s", RNA_EXTERNAL_SERVER_CERTIFICATE_CN, nodeName)
+		registryNodeAgentServerCertificate.Spec.CommonName = fmt.Sprintf("%s-%s", RNA_EXTERNAL_SERVER_CERTIFICATE_CN, nodeToken)
 		registryNodeAgentServerCertificate.Spec.IPAddresses = []string{
 			nodeIP,
 		}
@@ -610,9 +636,10 @@ func (r *RegistryReconciler) ReconcileRNAExternalServerCertificate(ctx context.C
 
 // ReconcileRNAClientCertificate reconciles a client certificate for the Registry Node Agent
 func (r *RegistryReconciler) ReconcileRNAClientCertificate(ctx context.Context, registryNamespace string, nodeName string, registry *metalk8sv1alpha1.Registry) error {
+	nodeToken := safeNodeName(nodeName)
 	registryNodeAgentCertificate := &cmv1.Certificate{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      fmt.Sprintf("%s-%s", RNA_INTERNAL_CLIENT_CERTIFICATE_PREFIX, nodeName),
+			Name:      fmt.Sprintf("%s-%s", RNA_INTERNAL_CLIENT_CERTIFICATE_PREFIX, nodeToken),
 			Namespace: registryNamespace,
 		},
 	}
@@ -625,13 +652,13 @@ func (r *RegistryReconciler) ReconcileRNAClientCertificate(ctx context.Context, 
 		if err != nil {
 			return err
 		}
-		registryNodeAgentCertificate.Spec.SecretName = fmt.Sprintf("%s-%s", RNA_INTERNAL_CLIENT_CERTIFICATE_PREFIX, nodeName)
+		registryNodeAgentCertificate.Spec.SecretName = fmt.Sprintf("%s-%s", RNA_INTERNAL_CLIENT_CERTIFICATE_PREFIX, nodeToken)
 		registryNodeAgentCertificate.Spec.IssuerRef = cmmetav1.IssuerReference{
 			Group: "cert-manager.io",
 			Kind:  RNA_CA_ISSUER_KIND,
 			Name:  RNA_CA_ISSUER_NAME,
 		}
-		registryNodeAgentCertificate.Spec.CommonName = fmt.Sprintf("%s-%s", RNA_INTERNAL_CLIENT_CERTIFICATE_PREFIX, nodeName)
+		registryNodeAgentCertificate.Spec.CommonName = fmt.Sprintf("%s-%s", RNA_INTERNAL_CLIENT_CERTIFICATE_PREFIX, nodeToken)
 		registryNodeAgentCertificate.Spec.Usages = []cmv1.KeyUsage{
 			cmv1.UsageKeyEncipherment,
 			cmv1.UsageDigitalSignature,
@@ -649,86 +676,77 @@ func (cpt componentSts) setRNAImageTag(registry *metalk8sv1alpha1.Registry) {
 }
 
 func (cpt componentSts) setRNAVolumes(registry *metalk8sv1alpha1.Registry, nodeName string) error {
+	nodeToken := safeNodeName(nodeName)
 	volumesMapping := make(map[string]int)
 	for id, volume := range cpt.sts.Spec.Template.Spec.Volumes {
 		volumesMapping[volume.Name] = id
 	}
 
-	var idVol int
-	var exists bool
+	// Only override the fields the operator owns (hostPath path, secret name):
+	// everything else (hostPath type, defaultMode, ...) comes from the base manifest.
+	setHostPathVolumePath := func(volumeName string, path string) error {
+		idVol, exists := volumesMapping[volumeName]
+		if !exists {
+			return fmt.Errorf("volume %s not found", volumeName)
+		}
+		hostPath := cpt.sts.Spec.Template.Spec.Volumes[idVol].HostPath
+		if hostPath == nil {
+			return fmt.Errorf("volume %s is not a hostPath volume", volumeName)
+		}
+		hostPath.Path = path
+		return nil
+	}
+	setSecretVolumeName := func(volumeName string, secretName string) error {
+		idVol, exists := volumesMapping[volumeName]
+		if !exists {
+			return fmt.Errorf("volume %s not found", volumeName)
+		}
+		secret := cpt.sts.Spec.Template.Spec.Volumes[idVol].Secret
+		if secret == nil {
+			return fmt.Errorf("volume %s is not a secret volume", volumeName)
+		}
+		secret.SecretName = secretName
+		return nil
+	}
 
 	// metalk8s-registry-node-agent-archives: where the ISO files are stored
-	idVol, exists = volumesMapping["metalk8s-registry-node-agent-archives"]
-	if !exists {
-		return fmt.Errorf("volume metalk8s-registry-node-agent-archives not found")
-	}
-	cpt.sts.Spec.Template.Spec.Volumes[idVol].VolumeSource = corev1.VolumeSource{
-		HostPath: &corev1.HostPathVolumeSource{
-			Path: *registry.Spec.ArchivesPath,
-			Type: ptr.To(corev1.HostPathDirectory),
-		},
+	if err := setHostPathVolumePath("metalk8s-registry-node-agent-archives", *registry.Spec.ArchivesPath); err != nil {
+		return err
 	}
 
 	// metalk8s-registry-node-agent-solutions: where the solutions are mounted
-	idVol, exists = volumesMapping["metalk8s-registry-node-agent-solutions"]
-	if !exists {
-		return fmt.Errorf("volume metalk8s-registry-node-agent-solutions not found")
-	}
-	cpt.sts.Spec.Template.Spec.Volumes[idVol].VolumeSource = corev1.VolumeSource{
-		HostPath: &corev1.HostPathVolumeSource{
-			Path: *registry.Spec.SolutionsPath,
-			Type: ptr.To(corev1.HostPathDirectory),
-		},
+	if err := setHostPathVolumePath("metalk8s-registry-node-agent-solutions", *registry.Spec.SolutionsPath); err != nil {
+		return err
 	}
 
 	// External Server TLS Certificate
-	idVol, exists = volumesMapping[TLS_SERVER_EXTERNAL_CERTS_NAME]
-	if !exists {
-		return fmt.Errorf("volume %s not found", TLS_SERVER_EXTERNAL_CERTS_NAME)
-	}
-	cpt.sts.Spec.Template.Spec.Volumes[idVol].VolumeSource = corev1.VolumeSource{
-		Secret: &corev1.SecretVolumeSource{
-			SecretName: fmt.Sprintf("%s-%s", RNA_EXTERNAL_SERVER_CERTIFICATE_PREFIX, nodeName),
-		},
+	if err := setSecretVolumeName(TLS_SERVER_EXTERNAL_CERTS_NAME,
+		fmt.Sprintf("%s-%s", RNA_EXTERNAL_SERVER_CERTIFICATE_PREFIX, nodeToken)); err != nil {
+		return err
 	}
 
 	// External Client CA mTLS Certificate
-	idVol, exists = volumesMapping[TLS_CLIENT_EXTERNAL_CERTS_NAME]
-	if !exists {
-		return fmt.Errorf("volume %s not found", TLS_CLIENT_EXTERNAL_CERTS_NAME)
-	}
-	cpt.sts.Spec.Template.Spec.Volumes[idVol].VolumeSource = corev1.VolumeSource{
-		Secret: &corev1.SecretVolumeSource{
-			SecretName: RNA_EXTERNAL_CLIENT_CERTIFICATE_PREFIX,
-		},
+	if err := setSecretVolumeName(TLS_CLIENT_EXTERNAL_CERTS_NAME, RNA_EXTERNAL_CLIENT_CERTIFICATE_PREFIX); err != nil {
+		return err
 	}
 
 	// Internal Server TLS Certificate
-	idVol, exists = volumesMapping[TLS_SERVER_INTERNAL_CERTS_NAME]
-	if !exists {
-		return fmt.Errorf("volume %s not found", TLS_SERVER_INTERNAL_CERTS_NAME)
-	}
-	cpt.sts.Spec.Template.Spec.Volumes[idVol].VolumeSource = corev1.VolumeSource{
-		Secret: &corev1.SecretVolumeSource{
-			SecretName: fmt.Sprintf("%s-%s", RNA_INTERNAL_SERVER_CERTIFICATE_PREFIX, nodeName),
-		},
+	if err := setSecretVolumeName(TLS_SERVER_INTERNAL_CERTS_NAME,
+		fmt.Sprintf("%s-%s", RNA_INTERNAL_SERVER_CERTIFICATE_PREFIX, nodeToken)); err != nil {
+		return err
 	}
 
 	// Internal Client mTLS Certificate
-	idVol, exists = volumesMapping[TLS_CLIENT_INTERNAL_CERTS_NAME]
-	if !exists {
-		return fmt.Errorf("volume %s not found", TLS_CLIENT_INTERNAL_CERTS_NAME)
-	}
-	cpt.sts.Spec.Template.Spec.Volumes[idVol].VolumeSource = corev1.VolumeSource{
-		Secret: &corev1.SecretVolumeSource{
-			SecretName: fmt.Sprintf("%s-%s", RNA_INTERNAL_CLIENT_CERTIFICATE_PREFIX, nodeName),
-		},
+	if err := setSecretVolumeName(TLS_CLIENT_INTERNAL_CERTS_NAME,
+		fmt.Sprintf("%s-%s", RNA_INTERNAL_CLIENT_CERTIFICATE_PREFIX, nodeToken)); err != nil {
+		return err
 	}
 
 	return nil
 }
 
 func (cpt componentSts) setRNAEnvVariables(nodeName string, registryNamespace string, registry *metalk8sv1alpha1.Registry) {
+	nodeToken := safeNodeName(nodeName)
 	environmentMapping := make(map[string]int)
 	for id, env := range cpt.sts.Spec.Template.Spec.Containers[0].Env {
 		environmentMapping[env.Name] = id
@@ -737,7 +755,7 @@ func (cpt componentSts) setRNAEnvVariables(nodeName string, registryNamespace st
 	// Change DOWNLOAD_HOST
 	downloadHost := corev1.EnvVar{
 		Name:  "DOWNLOAD_HOST",
-		Value: fmt.Sprintf("%s-%s.%s.svc", RNA_INTERNAL_SERVER_CERTIFICATE_CN, nodeName, registryNamespace),
+		Value: fmt.Sprintf("%s-%s.%s.svc", RNA_INTERNAL_SERVER_CERTIFICATE_CN, nodeToken, registryNamespace),
 	}
 	if idx, exists := environmentMapping["DOWNLOAD_HOST"]; !exists {
 		cpt.sts.Spec.Template.Spec.Containers[0].Env = append(cpt.sts.Spec.Template.Spec.Containers[0].Env, downloadHost)
@@ -763,6 +781,7 @@ func (cpt componentSts) setRNAEnvVariables(nodeName string, registryNamespace st
 
 // ReconcileRSStatefulSet reconciles a Registry Server as a StatefulSet on the specified node
 func (r *RegistryReconciler) ReconcileRSStatefulSet(ctx context.Context, registryNamespace string, nodeName string, nodeIP string, registry *metalk8sv1alpha1.Registry) error {
+	nodeToken := safeNodeName(nodeName)
 	registryServerStatefulSet := componentSts{r.RS.StatefulSets[0].DeepCopy()}
 
 	// Check for existing StatefulSet on the node
@@ -781,7 +800,7 @@ func (r *RegistryReconciler) ReconcileRSStatefulSet(ctx context.Context, registr
 	}
 
 	// Set metadata on StatefulSet
-	registryServerStatefulSet.sts.SetName(fmt.Sprintf("%s-%s", RS_STATEFULSET_PREFIX, nodeName))
+	registryServerStatefulSet.sts.SetName(fmt.Sprintf("%s-%s", RS_STATEFULSET_PREFIX, nodeToken))
 	registryServerStatefulSet.sts.SetNamespace(registryNamespace)
 	registryServerStatefulSet.sts.Labels["node"] = nodeName
 	if err := controllerutil.SetControllerReference(registry, registryServerStatefulSet.sts, r.Scheme); err != nil {
@@ -823,9 +842,10 @@ func (r *RegistryReconciler) ReconcileRSStatefulSet(ctx context.Context, registr
 
 // ReconcileRSExternalServerCertificate reconciles an external server certificate for the Registry Server
 func (r *RegistryReconciler) ReconcileRSExternalServerCertificate(ctx context.Context, registryNamespace string, nodeName string, nodeIP string, clusterIP string, registry *metalk8sv1alpha1.Registry) error {
+	nodeToken := safeNodeName(nodeName)
 	registryServerServerCertificate := &cmv1.Certificate{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      fmt.Sprintf("%s-%s", RS_EXTERNAL_SERVER_CERTIFICATE_PREFIX, nodeName),
+			Name:      fmt.Sprintf("%s-%s", RS_EXTERNAL_SERVER_CERTIFICATE_PREFIX, nodeToken),
 			Namespace: registryNamespace,
 		},
 	}
@@ -839,12 +859,12 @@ func (r *RegistryReconciler) ReconcileRSExternalServerCertificate(ctx context.Co
 		if err != nil {
 			return err
 		}
-		registryServerServerCertificate.Spec.SecretName = fmt.Sprintf("%s-%s", RS_EXTERNAL_SERVER_CERTIFICATE_PREFIX, nodeName)
+		registryServerServerCertificate.Spec.SecretName = fmt.Sprintf("%s-%s", RS_EXTERNAL_SERVER_CERTIFICATE_PREFIX, nodeToken)
 		registryServerServerCertificate.Spec.IssuerRef = cmmetav1.IssuerReference{
 			Name: registry.Spec.Server.CertificateIssuerRef.Name,
 			Kind: registry.Spec.Server.CertificateIssuerRef.Kind,
 		}
-		registryServerServerCertificate.Spec.CommonName = fmt.Sprintf("%s-%s", RS_EXTERNAL_SERVER_CERTIFICATE_CN, nodeName)
+		registryServerServerCertificate.Spec.CommonName = fmt.Sprintf("%s-%s", RS_EXTERNAL_SERVER_CERTIFICATE_CN, nodeToken)
 		registryServerServerCertificate.Spec.IPAddresses = []string{
 			nodeIP,
 			clusterIP,
@@ -940,6 +960,7 @@ func (cpt componentSts) setRSEnvVariables(registry *metalk8sv1alpha1.Registry, n
 }
 
 func (cpt componentSts) setRSVolumes(registry *metalk8sv1alpha1.Registry, nodeName string) error {
+	nodeToken := safeNodeName(nodeName)
 	volumesMapping := make(map[string]int)
 	for id, volume := range cpt.sts.Spec.Template.Spec.Volumes {
 		volumesMapping[volume.Name] = id
@@ -967,7 +988,7 @@ func (cpt componentSts) setRSVolumes(registry *metalk8sv1alpha1.Registry, nodeNa
 	}
 	cpt.sts.Spec.Template.Spec.Volumes[idVol].VolumeSource = corev1.VolumeSource{
 		Secret: &corev1.SecretVolumeSource{
-			SecretName: fmt.Sprintf("%s-%s", RS_EXTERNAL_SERVER_CERTIFICATE_PREFIX, nodeName),
+			SecretName: fmt.Sprintf("%s-%s", RS_EXTERNAL_SERVER_CERTIFICATE_PREFIX, nodeToken),
 		},
 	}
 
@@ -1004,7 +1025,7 @@ func (r *RegistryReconciler) getRegistryServerCA(ctx context.Context, registryNa
 	for i := range nodes {
 		secret := &corev1.Secret{}
 		if err := r.Get(ctx, types.NamespacedName{
-			Name:      fmt.Sprintf("%s-%s", RS_EXTERNAL_SERVER_CERTIFICATE_PREFIX, nodes[i].Name),
+			Name:      fmt.Sprintf("%s-%s", RS_EXTERNAL_SERVER_CERTIFICATE_PREFIX, safeNodeName(nodes[i].Name)),
 			Namespace: registryNamespace,
 		}, secret); err != nil {
 			if !apierrors.IsNotFound(err) {
@@ -1061,4 +1082,133 @@ func (r *RegistryReconciler) reconcileContainerdMirrorConfigMap(ctx context.Cont
 		return nil
 	})
 	return err
+}
+
+// ReconcileContainerdMirrorSyncDaemonSet reconciles the DaemonSet running
+// file-reflector to sync the containerd mirror ConfigMap to every node's
+// containerd certs.d directory. Deletes it when mirror propagation is disabled.
+// It updates the mirror sync status fields and returns the readiness of the
+// mirror sync for the global readiness computation (true when disabled, so a
+// disabled mirror sync does not degrade the global readiness).
+func (r *RegistryReconciler) ReconcileContainerdMirrorSyncDaemonSet(ctx context.Context, registryNamespace string, registry *metalk8sv1alpha1.Registry) (bool, error) {
+	daemonSet := &appsv1.DaemonSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      CONTAINERD_MIRROR_SYNC_DAEMONSET_NAME,
+			Namespace: registryNamespace,
+		},
+	}
+
+	if !registry.IsMirrorPropagationEnabled() {
+		if err := r.Delete(ctx, daemonSet); err != nil && !apierrors.IsNotFound(err) {
+			return false, fmt.Errorf("error deleting containerd mirror sync DaemonSet: %w", err)
+		}
+		registry.SetMirrorSyncAvailable(false)
+		registry.SetMirrorSyncReady(false)
+		return true, nil
+	}
+
+	image := registry.GetMirrorPropagationImage()
+
+	args := []string{"--source=/source", "--target=/target"}
+	if registry.Spec.MirrorPropagation != nil {
+		for _, ignorePath := range registry.Spec.MirrorPropagation.IgnorePaths {
+			args = append(args, fmt.Sprintf("--ignore=%s", ignorePath))
+		}
+	}
+	args = append(args, "--file-mode=0644", "--owner=0:0")
+
+	labels := map[string]string{
+		REG_APP_LABEL_KEY: CONTAINERD_MIRROR_SYNC_DAEMONSET_NAME,
+	}
+
+	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, daemonSet, func() error {
+		if err := controllerutil.SetControllerReference(registry, daemonSet, r.Scheme); err != nil {
+			return err
+		}
+		daemonSet.SetLabels(labels)
+		daemonSet.Spec.Selector = &metav1.LabelSelector{MatchLabels: labels}
+		daemonSet.Spec.Template.Labels = labels
+		daemonSet.Spec.Template.Spec.NodeSelector = registry.GetMirrorPropagationNodeSelector()
+		// Assign unconditionally so fields removed from the spec are cleared on update.
+		var tolerations []corev1.Toleration
+		if registry.Spec.MirrorPropagation != nil {
+			tolerations = registry.Spec.MirrorPropagation.Tolerations
+		}
+		daemonSet.Spec.Template.Spec.Tolerations = tolerations
+		daemonSet.Spec.Template.Spec.ImagePullSecrets = image.PullSecrets
+
+		container := corev1.Container{
+			Name:  "containerd-mirror-sync",
+			Image: image.GetImage(),
+			Args:  args,
+			SecurityContext: &corev1.SecurityContext{
+				RunAsNonRoot:             ptr.To(true),
+				ReadOnlyRootFilesystem:   ptr.To(true),
+				AllowPrivilegeEscalation: ptr.To(false),
+				Capabilities: &corev1.Capabilities{
+					Drop: []corev1.Capability{"ALL"},
+					// Required to write root:root/0644 files on the host while
+					// running as non-root (file caps are set on the binary).
+					Add: []corev1.Capability{"DAC_OVERRIDE", "FOWNER", "CHOWN"},
+				},
+			},
+			Resources: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("10m"),
+					corev1.ResourceMemory: resource.MustParse("16Mi"),
+				},
+				Limits: corev1.ResourceList{
+					corev1.ResourceMemory: resource.MustParse("32Mi"),
+				},
+			},
+			VolumeMounts: []corev1.VolumeMount{
+				{
+					Name:      "mirror-config",
+					MountPath: "/source",
+					ReadOnly:  true,
+				},
+				{
+					Name:      "host-certs-d",
+					MountPath: "/target",
+				},
+			},
+		}
+		if image.PullPolicy != nil {
+			container.ImagePullPolicy = *image.PullPolicy
+		}
+		daemonSet.Spec.Template.Spec.Containers = []corev1.Container{container}
+
+		daemonSet.Spec.Template.Spec.Volumes = []corev1.Volume{
+			{
+				Name: "mirror-config",
+				VolumeSource: corev1.VolumeSource{
+					ConfigMap: &corev1.ConfigMapVolumeSource{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: CONTAINERD_MIRROR_CONFIGMAP_NAME,
+						},
+					},
+				},
+			},
+			{
+				Name: "host-certs-d",
+				VolumeSource: corev1.VolumeSource{
+					HostPath: &corev1.HostPathVolumeSource{
+						// Only the _default subdir is managed by the reflector: the
+						// rest of the certs.d directory is left untouched.
+						Path: fmt.Sprintf("%s/%s", registry.GetContainerdConfigPath(), CERTS_D_SUBDIR_VALUE),
+						Type: ptr.To(corev1.HostPathDirectoryOrCreate),
+					},
+				},
+			},
+		}
+		return nil
+	})
+	if err != nil {
+		return false, err
+	}
+
+	registry.SetMirrorSyncAvailable(true)
+	ready := daemonSet.Status.NumberReady == daemonSet.Status.DesiredNumberScheduled
+	registry.SetMirrorSyncReady(ready)
+	return ready, nil
 }

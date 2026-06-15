@@ -27,22 +27,28 @@ import (
 
 const (
 	RegistryServerImageRegistry    = "ghcr.io/scality"
-	RegistryServerImageName        = "metalk8s-registry-server"
+	RegistryServerImageName        = "static-oci-registry"
 	RegistryServerImageTag         = "v1.0.0"
 	RegistryNodeAgentImageRegistry = "ghcr.io/scality"
-	RegistryNodeAgentImageName     = "metalk8s-registry-agent"
+	RegistryNodeAgentImageName     = "metalk8s-registry-node-agent"
 	RegistryNodeAgentImageTag      = "v0.0.1-alpha.9"
+	FileReflectorImageRegistry     = "ghcr.io/scality"
+	FileReflectorImageName         = "file-reflector"
+	FileReflectorImageTag          = "v0.2.0"
 	DEFAULT_NAMESPACE              = "metalk8s-registry"
 	DEFAULT_ARCHIVES_PATH          = "/srv/scality/metalk8s/archives"
 	DEFAULT_SOLUTIONS_PATH         = "/srv/scality/metalk8s/solutions"
+	DEFAULT_CONTAINERD_CONFIG_PATH = "/etc/containerd/certs.d"
 )
 
 type ImageSpec struct {
-	// Registry URL.
-	Registry string `json:"registry"`
-	// Name of the image.
-	Name string `json:"name"`
-	// Tag of the image, default to latest.
+	// Registry URL, defaults to the component's default registry.
+	// +kubebuilder:validation:Optional
+	Registry string `json:"registry,omitempty"`
+	// Name of the image, defaults to the component's default image name.
+	// +kubebuilder:validation:Optional
+	Name string `json:"name,omitempty"`
+	// Tag of the image, defaults to the component's default tag.
 	// +kubebuilder:validation:Optional
 	Tag *string `json:"tag,omitempty"`
 	// PullPolicy of the image.
@@ -90,6 +96,25 @@ type MirrorPropagationSpec struct {
 	// Enabled controls whether the mirror config propagation is active.
 	// +kubebuilder:default=true
 	Enabled bool `json:"enabled"`
+	// Image is the specification of the file-reflector image.
+	// +kubebuilder:validation:Optional
+	Image *ImageSpec `json:"image,omitempty"`
+	// ContainerdConfigPath is the containerd mirror config path on the host,
+	// defaults to "/etc/containerd/certs.d".
+	// +kubebuilder:default="/etc/containerd/certs.d"
+	// +kubebuilder:validation:Optional
+	ContainerdConfigPath string `json:"containerdConfigPath,omitempty"`
+	// NodeSelector for the sync DaemonSet pods.
+	// Defaults to {"kubernetes.io/os": "linux"}.
+	// +kubebuilder:validation:Optional
+	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
+	// Tolerations for the sync DaemonSet pods.
+	// +kubebuilder:validation:Optional
+	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
+	// IgnorePaths is a list of paths in the target directory that should not be
+	// managed by the file-reflector (e.g. legacy registry config managed externally).
+	// +kubebuilder:validation:Optional
+	IgnorePaths []string `json:"ignorePaths,omitempty"`
 }
 
 // RegistrySpec defines the desired state of Registry.
@@ -152,6 +177,10 @@ type RegistryStatus struct {
 	AgentAvailable *bool `json:"agentAvailable,omitempty"`
 	// Readiness of the registry node agent.
 	AgentReady *bool `json:"agentReady,omitempty"`
+	// Availability of the containerd mirror sync.
+	MirrorSyncAvailable *bool `json:"mirrorSyncAvailable,omitempty"`
+	// Readiness of the containerd mirror sync.
+	MirrorSyncReady *bool `json:"mirrorSyncReady,omitempty"`
 	// Number of replicas for NodeAgent and RegistryServer.
 	Replicas *int `json:"replicas,omitempty"`
 	// Number of ready replicas for RegistryServer.
@@ -224,6 +253,12 @@ func (registry *Registry) InitStatus() {
 	if registry.Status.AgentReady == nil {
 		registry.Status.AgentReady = ptr.To(false)
 	}
+	if registry.Status.MirrorSyncAvailable == nil {
+		registry.Status.MirrorSyncAvailable = ptr.To(false)
+	}
+	if registry.Status.MirrorSyncReady == nil {
+		registry.Status.MirrorSyncReady = ptr.To(false)
+	}
 	if registry.Status.Replicas == nil {
 		registry.Status.Replicas = ptr.To(0)
 	}
@@ -244,27 +279,40 @@ func (registry *Registry) InitStatus() {
 	}
 }
 
-func (registry *Registry) WithDefaults() {
-	if registry.Spec.Agent.Image == nil {
-		registry.Spec.Agent.Image = &ImageSpec{
-			Registry: RegistryNodeAgentImageRegistry,
-			Name:     RegistryNodeAgentImageName,
-			Tag:      ptr.To(RegistryNodeAgentImageTag),
-		}
+// defaultImageSpec fills the empty fields of the given image spec with the
+// provided component defaults, creating the spec when nil.
+//
+//nolint:unparam // every component currently shares the same default registry
+func defaultImageSpec(image *ImageSpec, registry string, name string, tag string) *ImageSpec {
+	if image == nil {
+		image = &ImageSpec{}
 	}
-	if registry.Spec.Agent.Image.Tag == nil {
-		registry.Spec.Agent.Image.Tag = ptr.To("latest")
+	if image.Registry == "" {
+		image.Registry = registry
 	}
+	if image.Name == "" {
+		image.Name = name
+	}
+	if image.Tag == nil {
+		image.Tag = ptr.To(tag)
+	}
+	return image
+}
 
-	if registry.Spec.Server.Image == nil {
-		registry.Spec.Server.Image = &ImageSpec{
-			Registry: RegistryServerImageRegistry,
-			Name:     RegistryServerImageName,
-			Tag:      ptr.To(RegistryServerImageTag),
-		}
-	}
-	if registry.Spec.Server.Image.Tag == nil {
-		registry.Spec.Server.Image.Tag = ptr.To("latest")
+func (registry *Registry) WithDefaults() {
+	registry.Spec.Agent.Image = defaultImageSpec(
+		registry.Spec.Agent.Image,
+		RegistryNodeAgentImageRegistry, RegistryNodeAgentImageName, RegistryNodeAgentImageTag,
+	)
+	registry.Spec.Server.Image = defaultImageSpec(
+		registry.Spec.Server.Image,
+		RegistryServerImageRegistry, RegistryServerImageName, RegistryServerImageTag,
+	)
+	if registry.Spec.MirrorPropagation != nil {
+		registry.Spec.MirrorPropagation.Image = defaultImageSpec(
+			registry.Spec.MirrorPropagation.Image,
+			FileReflectorImageRegistry, FileReflectorImageName, FileReflectorImageTag,
+		)
 	}
 }
 
@@ -305,6 +353,38 @@ func (r *Registry) GetSolutionsPath() string {
 // be generated. It defaults to true when the mirrorPropagation section is omitted.
 func (r *Registry) IsMirrorPropagationEnabled() bool {
 	return r.Spec.MirrorPropagation == nil || r.Spec.MirrorPropagation.Enabled
+}
+
+// GetMirrorPropagationImage returns the file-reflector image spec, with its
+// empty fields filled with the defaults. The returned ImageSpec always has a
+// non-nil Tag and is a copy (the spec is never mutated).
+func (r *Registry) GetMirrorPropagationImage() *ImageSpec {
+	var image *ImageSpec
+	if r.Spec.MirrorPropagation != nil {
+		image = r.Spec.MirrorPropagation.Image.DeepCopy()
+	}
+	return defaultImageSpec(
+		image,
+		FileReflectorImageRegistry, FileReflectorImageName, FileReflectorImageTag,
+	)
+}
+
+// GetContainerdConfigPath returns the containerd certs.d path on the host,
+// or its default value if not set.
+func (r *Registry) GetContainerdConfigPath() string {
+	if r.Spec.MirrorPropagation != nil && r.Spec.MirrorPropagation.ContainerdConfigPath != "" {
+		return r.Spec.MirrorPropagation.ContainerdConfigPath
+	}
+	return DEFAULT_CONTAINERD_CONFIG_PATH
+}
+
+// GetMirrorPropagationNodeSelector returns the sync DaemonSet nodeSelector,
+// or its default value if not set.
+func (r *Registry) GetMirrorPropagationNodeSelector() map[string]string {
+	if r.Spec.MirrorPropagation != nil && len(r.Spec.MirrorPropagation.NodeSelector) > 0 {
+		return r.Spec.MirrorPropagation.NodeSelector
+	}
+	return map[string]string{"kubernetes.io/os": "linux"}
 }
 
 func (r *Registry) SetAvailable(available bool) {
@@ -413,4 +493,40 @@ func (r *Registry) SetAgentReady(ready bool) {
 	}
 	meta.SetStatusCondition(&r.Status.Conditions, condition)
 	r.Status.AgentReady = ptr.To(ready)
+}
+
+func (r *Registry) SetMirrorSyncAvailable(available bool) {
+	condition := metav1.Condition{
+		Type:               "MirrorSyncAvailable",
+		Status:             metav1.ConditionTrue,
+		LastTransitionTime: metav1.Now(),
+		Reason:             "RegistryMirrorSyncAvailable",
+		Message:            "The containerd mirror sync is available.",
+		ObservedGeneration: r.Generation,
+	}
+	if !available {
+		condition.Status = metav1.ConditionFalse
+		condition.Reason = "RegistryMirrorSyncNotAvailable"
+		condition.Message = "The containerd mirror sync is not available."
+	}
+	meta.SetStatusCondition(&r.Status.Conditions, condition)
+	r.Status.MirrorSyncAvailable = ptr.To(available)
+}
+
+func (r *Registry) SetMirrorSyncReady(ready bool) {
+	condition := metav1.Condition{
+		Type:               "MirrorSyncReady",
+		Status:             metav1.ConditionTrue,
+		LastTransitionTime: metav1.Now(),
+		Reason:             "RegistryMirrorSyncReady",
+		Message:            "The containerd mirror sync is ready.",
+		ObservedGeneration: r.Generation,
+	}
+	if !ready {
+		condition.Status = metav1.ConditionFalse
+		condition.Reason = "RegistryMirrorSyncNotReady"
+		condition.Message = "The containerd mirror sync is not ready."
+	}
+	meta.SetStatusCondition(&r.Status.Conditions, condition)
+	r.Status.MirrorSyncReady = ptr.To(ready)
 }

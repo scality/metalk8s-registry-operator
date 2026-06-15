@@ -77,6 +77,7 @@ func (d *RegistryCustomDefaulter) Default(_ context.Context, obj runtime.Object)
 	registry.Spec.Namespace = ptr.To(registry.GetRegistryNamespace())
 	registry.Spec.ArchivesPath = ptr.To(registry.GetArchivesPath())
 	registry.Spec.SolutionsPath = ptr.To(registry.GetSolutionsPath())
+	registry.WithDefaults()
 
 	return nil
 }

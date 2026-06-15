@@ -70,7 +70,7 @@ The spec includes:
 | `spec.nodeSelector` | Node selector for scheduling registry node agents |
 | `spec.server` | Registry server image and TLS certificate issuer reference |
 | `spec.agent` | Registry node agent image, TLS issuer, and mTLS authentication (CA secret ref) |
-| `spec.mirrorPropagation` | Controls generation of the containerd registry mirror ConfigMap, enabled by default (`spec.mirrorPropagation.enabled`) |
+| `spec.mirrorPropagation` | Containerd mirror config propagation: mirror ConfigMap generation and its sync DaemonSet. Fields: `enabled` (default true), `image` (file-reflector), `containerdConfigPath` (default `/etc/containerd/certs.d`), `nodeSelector`, `tolerations`, `ignorePaths` |
 
 See [config/samples/metalk8s_v1alpha1_registry.yaml](config/samples/metalk8s_v1alpha1_registry.yaml) for a full example.
 
@@ -90,6 +90,8 @@ The Status includes:
 | `status.ready` | All resources (StatefulSets, Certificates, ...) are ready (READY) |
 | `status.agentReady` | True, when all expected Registry-Node-Agent are ready |
 | `status.serverReady` | True, when all expected Registry-Server are ready |
+| `status.mirrorSyncAvailable` | True, when the containerd mirror sync DaemonSet is created |
+| `status.mirrorSyncReady` | True, when all containerd mirror sync DaemonSet replicas are ready |
 | `status.readyAgentReplicas` | Number of ready Registry-Node-Agent (AGENT REPLICAS) |
 | `status.readyServerReplicas` | Number of ready Registry-Server (SERVER REPLICAS) |
 | `status.statusPerNode` | Same information as below, sorted by `Nodes` |

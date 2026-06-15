@@ -73,6 +73,7 @@ type RegistryReconciler struct {
 // +kubebuilder:rbac:groups=core,resources=nodes,verbs=get;list;watch
 // +kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=apps,resources=statefulsets,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=apps,resources=daemonsets,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=cert-manager.io,resources=issuers,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=cert-manager.io,resources=clusterissuers,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=metalk8s.scality.com,resources=nodesolutionarchives,verbs="*"
@@ -170,6 +171,9 @@ func (r *RegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		if err := r.reconcileContainerdMirrorConfigMap(ctx, *registry.Spec.Namespace, registry, clusterIP, nil); err != nil {
 			return ctrl.Result{}, fmt.Errorf("error reconciling containerd mirror ConfigMap: %w", err)
 		}
+		if _, err := r.ReconcileContainerdMirrorSyncDaemonSet(ctx, *registry.Spec.Namespace, registry); err != nil {
+			return ctrl.Result{}, fmt.Errorf("error reconciling containerd mirror sync DaemonSet: %w", err)
+		}
 		return ctrl.Result{}, nil
 	}
 
@@ -204,9 +208,17 @@ func (r *RegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, fmt.Errorf("error reconciling containerd mirror ConfigMap: %w", err)
 	}
 
+	// Reconcile the DaemonSet syncing the mirror ConfigMap to every node.
+	mirrorSyncReady, err := r.ReconcileContainerdMirrorSyncDaemonSet(ctx, *registry.Spec.Namespace, registry)
+	if err != nil {
+		registry.SetAvailable(false)
+		registry.SetReady(false)
+		return ctrl.Result{}, fmt.Errorf("error reconciling containerd mirror sync DaemonSet: %w", err)
+	}
+
 	// 8. Update the status.Available
 	registry.SetAvailable(true)
-	registry.SetReady(agentReady && serverReady)
+	registry.SetReady(agentReady && serverReady && mirrorSyncReady)
 	registry.SetAgentAvailable(nbAgentsAvailable == *registry.Status.Replicas)
 	registry.SetAgentReady(nbAgentReady == *registry.Status.Replicas)
 	registry.SetServerAvailable(nbServersAvailable == *registry.Status.Replicas)
@@ -601,6 +613,7 @@ func (r *RegistryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&metalk8sv1alpha1.Registry{}).
 		Owns(&appsv1.StatefulSet{}).
+		Owns(&appsv1.DaemonSet{}).
 		Owns(&corev1.Service{}).
 		Owns(&corev1.ServiceAccount{}).
 		Owns(&admissionregistrationv1.ValidatingWebhookConfiguration{}).

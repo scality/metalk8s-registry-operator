@@ -177,6 +177,29 @@ var _ = Describe("Registry Webhook", func() {
 	})
 
 	Context("When creating Registry under Defaulting Webhook", func() {
+		It("Should fill the partially set images with the component defaults", func() {
+			By("simulating a Registry with partially set images")
+			obj.Spec.Server.Image = &metalk8sv1alpha1.ImageSpec{Tag: ptr.To("custom-tag")}
+			obj.Spec.Agent.Image = nil
+			obj.Spec.MirrorPropagation = &metalk8sv1alpha1.MirrorPropagationSpec{
+				Enabled: true,
+				Image: &metalk8sv1alpha1.ImageSpec{
+					PullSecrets: []corev1.LocalObjectReference{{Name: "regcred"}},
+				},
+			}
+
+			By("calling the Default method to apply defaults")
+			defaulter.Default(ctx, obj) //nolint:errcheck // We don't care about the error here
+
+			By("checking that the image defaults are set")
+			Expect(obj.Spec.Server.Image.GetImage()).To(Equal(metalk8sv1alpha1.RegistryServerImageRegistry + "/" + metalk8sv1alpha1.RegistryServerImageName + ":custom-tag"))
+			Expect(obj.Spec.Agent.Image.GetImage()).To(Equal(metalk8sv1alpha1.RegistryNodeAgentImageRegistry + "/" + metalk8sv1alpha1.RegistryNodeAgentImageName + ":" + metalk8sv1alpha1.RegistryNodeAgentImageTag))
+			Expect(obj.Spec.MirrorPropagation.Image.GetImage()).To(Equal(metalk8sv1alpha1.FileReflectorImageRegistry + "/" + metalk8sv1alpha1.FileReflectorImageName + ":" + metalk8sv1alpha1.FileReflectorImageTag))
+			Expect(obj.Spec.MirrorPropagation.Image.PullSecrets).To(HaveLen(1))
+		})
+	})
+
+	Context("When creating Registry under Defaulting Webhook", func() {
 		It("Should apply defaults when Spec.ArchivesPath field is missing", func() {
 			By("simulating a scenario where defaults should be applied")
 			obj.Spec.ArchivesPath = nil
