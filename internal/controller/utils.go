@@ -3,6 +3,7 @@ package controller
 import (
 	"fmt"
 	"hash/fnv"
+	"slices"
 
 	"context"
 	"strings"
@@ -16,7 +17,9 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -27,6 +30,11 @@ import (
 const (
 	ORGANIZATION_NAME                      = "metalk8s"
 	SSA_FIELD_OWNER_NAME                   = "registry-operator"
+	CONTAINERD_MIRROR_CONFIGMAP_NAME       = "metalk8s-registry-containerd-mirror"
+	CERTS_D_SUBDIR_ANNOTATION              = "registry.metalk8s.scality.com/certs-d-subdir"
+	CERTS_D_SUBDIR_VALUE                   = "_default"
+	MIRROR_HOSTS_TOML_KEY                  = "hosts.toml"
+	MIRROR_CA_KEY                          = "ca.crt"
 	RNA_CA_NAME                            = "metalk8s-registry-node-agent-ca"
 	RNA_CA_SECRET_NAME                     = "rna-ca-cert"
 	RNA_CA_ISSUER_NAME                     = "metalk8s-registry-node-agent-ca-issuer"
@@ -47,6 +55,8 @@ const (
 	TLS_SERVER_INTERNAL_CERTS_NAME         = "tls-server-intern-certs"
 	TLS_SERVER_EXTERNAL_CERTS_NAME         = "tls-server-extern-certs"
 	TLS_CLIENT_EXTERNAL_CERTS_NAME         = "tls-client-extern-certs"
+	RS_SERVICE_NAME                        = "metalk8s-registry-server"
+	RS_SERVER_PORT                         = 5000
 )
 
 // getHash32Name returns a 32-bit hash of the input string - hexadecimal representation
@@ -752,7 +762,7 @@ func (cpt componentSts) setRNAEnvVariables(nodeName string, registryNamespace st
 */
 
 // ReconcileRSStatefulSet reconciles a Registry Server as a StatefulSet on the specified node
-func (r *RegistryReconciler) ReconcileRSStatefulSet(ctx context.Context, registryNamespace string, nodeName string, registry *metalk8sv1alpha1.Registry) error {
+func (r *RegistryReconciler) ReconcileRSStatefulSet(ctx context.Context, registryNamespace string, nodeName string, nodeIP string, registry *metalk8sv1alpha1.Registry) error {
 	registryServerStatefulSet := componentSts{r.RS.StatefulSets[0].DeepCopy()}
 
 	// Check for existing StatefulSet on the node
@@ -805,14 +815,14 @@ func (r *RegistryReconciler) ReconcileRSStatefulSet(ctx context.Context, registr
 		return err
 	}
 
-	// Set Environment Variables (LOGLEVEL)
-	registryServerStatefulSet.setRSEnvVariables(registry)
+	// Set Environment Variables (LOGLEVEL, HTTP_ADDR)
+	registryServerStatefulSet.setRSEnvVariables(registry, nodeIP)
 
 	return r.Patch(ctx, registryServerStatefulSet.sts, client.Apply, client.ForceOwnership, client.FieldOwner(SSA_FIELD_OWNER_NAME))
 }
 
 // ReconcileRSExternalServerCertificate reconciles an external server certificate for the Registry Server
-func (r *RegistryReconciler) ReconcileRSExternalServerCertificate(ctx context.Context, registryNamespace string, nodeName string, nodeIP string, registry *metalk8sv1alpha1.Registry) error {
+func (r *RegistryReconciler) ReconcileRSExternalServerCertificate(ctx context.Context, registryNamespace string, nodeName string, nodeIP string, clusterIP string, registry *metalk8sv1alpha1.Registry) error {
 	registryServerServerCertificate := &cmv1.Certificate{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      fmt.Sprintf("%s-%s", RS_EXTERNAL_SERVER_CERTIFICATE_PREFIX, nodeName),
@@ -837,6 +847,13 @@ func (r *RegistryReconciler) ReconcileRSExternalServerCertificate(ctx context.Co
 		registryServerServerCertificate.Spec.CommonName = fmt.Sprintf("%s-%s", RS_EXTERNAL_SERVER_CERTIFICATE_CN, nodeName)
 		registryServerServerCertificate.Spec.IPAddresses = []string{
 			nodeIP,
+			clusterIP,
+		}
+		registryServerServerCertificate.Spec.DNSNames = []string{
+			RS_SERVICE_NAME,
+			fmt.Sprintf("%s.%s", RS_SERVICE_NAME, registryNamespace),
+			fmt.Sprintf("%s.%s.svc", RS_SERVICE_NAME, registryNamespace),
+			fmt.Sprintf("%s.%s.svc.cluster.local", RS_SERVICE_NAME, registryNamespace),
 		}
 		registryServerServerCertificate.Spec.Usages = []cmv1.KeyUsage{
 			cmv1.UsageKeyEncipherment,
@@ -848,11 +865,52 @@ func (r *RegistryReconciler) ReconcileRSExternalServerCertificate(ctx context.Co
 	return err
 }
 
+// ReconcileRSService reconciles a ClusterIP Service fronting the Registry Server
+// pods. kube-proxy load-balances pulls across all replicas. It returns the
+// allocated ClusterIP, which is added to the Registry Server certificate SANs.
+func (r *RegistryReconciler) ReconcileRSService(ctx context.Context, registryNamespace string, registry *metalk8sv1alpha1.Registry) (string, error) {
+	registryServerService := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      RS_SERVICE_NAME,
+			Namespace: registryNamespace,
+		},
+	}
+
+	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, registryServerService, func() error {
+		registryServerService.SetLabels(map[string]string{
+			REG_APP_LABEL_KEY: RS_APP_LABEL_VALUE,
+		})
+		if err := controllerutil.SetControllerReference(registry, registryServerService, r.Scheme); err != nil {
+			return err
+		}
+		registryServerService.Spec.Type = corev1.ServiceTypeClusterIP
+		registryServerService.Spec.Selector = map[string]string{
+			REG_APP_LABEL_KEY: RS_APP_LABEL_VALUE,
+		}
+		registryServerService.Spec.Ports = []corev1.ServicePort{
+			{
+				Name:       "https",
+				Port:       RS_SERVER_PORT,
+				Protocol:   corev1.ProtocolTCP,
+				TargetPort: intstr.FromInt32(RS_SERVER_PORT),
+			},
+		}
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	if registryServerService.Spec.ClusterIP == "" {
+		return "", fmt.Errorf("ClusterIP not yet allocated for Service %s", RS_SERVICE_NAME)
+	}
+	return registryServerService.Spec.ClusterIP, nil
+}
+
 func (cpt componentSts) setRSImageTag(registry *metalk8sv1alpha1.Registry) {
 	cpt.sts.Spec.Template.Spec.Containers[0].Image = registry.Spec.Server.Image.GetImage()
 }
 
-func (cpt componentSts) setRSEnvVariables(registry *metalk8sv1alpha1.Registry) {
+func (cpt componentSts) setRSEnvVariables(registry *metalk8sv1alpha1.Registry, nodeIP string) {
 	environmentMapping := make(map[string]int)
 	for id, env := range cpt.sts.Spec.Template.Spec.Containers[0].Env {
 		environmentMapping[env.Name] = id
@@ -867,6 +925,17 @@ func (cpt componentSts) setRSEnvVariables(registry *metalk8sv1alpha1.Registry) {
 		cpt.sts.Spec.Template.Spec.Containers[0].Env = append(cpt.sts.Spec.Template.Spec.Containers[0].Env, logLevel)
 	} else {
 		cpt.sts.Spec.Template.Spec.Containers[0].Env[idx] = logLevel
+	}
+
+	// Bind the server to the node's InternalIP only
+	httpAddr := corev1.EnvVar{
+		Name:  "HTTP_ADDR",
+		Value: fmt.Sprintf("%s:%d", nodeIP, RS_SERVER_PORT),
+	}
+	if idx, exists := environmentMapping["HTTP_ADDR"]; !exists {
+		cpt.sts.Spec.Template.Spec.Containers[0].Env = append(cpt.sts.Spec.Template.Spec.Containers[0].Env, httpAddr)
+	} else {
+		cpt.sts.Spec.Template.Spec.Containers[0].Env[idx] = httpAddr
 	}
 }
 
@@ -903,4 +972,93 @@ func (cpt componentSts) setRSVolumes(registry *metalk8sv1alpha1.Registry, nodeNa
 	}
 
 	return nil
+}
+
+// getNodeInternalIP returns the node's InternalIP, or "" if none is set.
+func getNodeInternalIP(node *corev1.Node) string {
+	for _, address := range node.Status.Addresses {
+		if address.Type == corev1.NodeInternalIP {
+			return address.Address
+		}
+	}
+	return ""
+}
+
+// getSortedNodeInternalIPs returns the sorted InternalIPs of the given nodes,
+// skipping nodes without one.
+func getSortedNodeInternalIPs(nodes []corev1.Node) []string {
+	ips := []string{}
+	for i := range nodes {
+		if ip := getNodeInternalIP(&nodes[i]); ip != "" {
+			ips = append(ips, ip)
+		}
+	}
+	slices.Sort(ips)
+	return ips
+}
+
+// getRegistryServerCA returns the Registry Server CA (ca.crt) read from the first
+// available external server certificate secret. All per-node certs share the same
+// issuer/CA. Returns "" when none is available yet.
+func (r *RegistryReconciler) getRegistryServerCA(ctx context.Context, registryNamespace string, nodes []corev1.Node) string {
+	for i := range nodes {
+		secret := &corev1.Secret{}
+		if err := r.Get(ctx, types.NamespacedName{
+			Name:      fmt.Sprintf("%s-%s", RS_EXTERNAL_SERVER_CERTIFICATE_PREFIX, nodes[i].Name),
+			Namespace: registryNamespace,
+		}, secret); err != nil {
+			if !apierrors.IsNotFound(err) {
+				logf.FromContext(ctx).Error(err, "failed to read registry server CA secret", "node", nodes[i].Name)
+			}
+			continue
+		}
+		if ca, ok := secret.Data["ca.crt"]; ok && len(ca) > 0 {
+			return string(ca)
+		}
+	}
+	return ""
+}
+
+// reconcileContainerdMirrorConfigMap creates/updates (or deletes when disabled) the
+// containerd mirror ConfigMap (_default/hosts.toml + ca.crt). The host list is the
+// ClusterIP first, then each selected node IP sorted.
+func (r *RegistryReconciler) reconcileContainerdMirrorConfigMap(ctx context.Context, registryNamespace string, registry *metalk8sv1alpha1.Registry, clusterIP string, nodes []corev1.Node) error {
+	configMap := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      CONTAINERD_MIRROR_CONFIGMAP_NAME,
+			Namespace: registryNamespace,
+		},
+	}
+
+	if !registry.IsMirrorPropagationEnabled() {
+		if err := r.Delete(ctx, configMap); err != nil && !apierrors.IsNotFound(err) {
+			return fmt.Errorf("error deleting containerd mirror ConfigMap: %w", err)
+		}
+		return nil
+	}
+
+	mirrorHosts := []string{fmt.Sprintf("https://%s:%d", clusterIP, RS_SERVER_PORT)}
+	for _, ip := range getSortedNodeInternalIPs(nodes) {
+		mirrorHosts = append(mirrorHosts, fmt.Sprintf("https://%s:%d", ip, RS_SERVER_PORT))
+	}
+
+	caCrt := r.getRegistryServerCA(ctx, registryNamespace, nodes)
+
+	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, configMap, func() error {
+		if err := controllerutil.SetControllerReference(registry, configMap, r.Scheme); err != nil {
+			return err
+		}
+		configMap.SetAnnotations(map[string]string{
+			CERTS_D_SUBDIR_ANNOTATION: CERTS_D_SUBDIR_VALUE,
+		})
+		data := map[string]string{
+			MIRROR_HOSTS_TOML_KEY: utils.GenerateContainerdHostsToml(mirrorHosts),
+		}
+		if caCrt != "" {
+			data[MIRROR_CA_KEY] = caCrt
+		}
+		configMap.Data = data
+		return nil
+	})
+	return err
 }

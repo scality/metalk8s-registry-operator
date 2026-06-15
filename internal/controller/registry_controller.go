@@ -133,14 +133,24 @@ func (r *RegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, err
 	}
 
+	// Reconcile the Registry Server ClusterIP Service and read its ClusterIP.
+	clusterIP, err := r.ReconcileRSService(ctx, *registry.Spec.Namespace, registry)
+	if err != nil {
+		registry.SetAvailable(false)
+		registry.SetReady(false)
+		return ctrl.Result{}, fmt.Errorf("error reconciling Registry Server Service: %w", err)
+	}
+	registry.Status.ClusterIP = clusterIP
+
 	// 5. List all nodes matching the nodeSelector
 	matchingNodes := &corev1.NodeList{}
-	err := r.List(ctx, matchingNodes, client.MatchingLabels(registry.Spec.NodeSelector))
+	err = r.List(ctx, matchingNodes, client.MatchingLabels(registry.Spec.NodeSelector))
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 	registry.Status.SelectedNodes = make([]string, 0, len(matchingNodes.Items))
 	registry.Status.Replicas = ptr.To(len(matchingNodes.Items))
+	registry.Status.NodeIPs = getSortedNodeInternalIPs(matchingNodes.Items)
 	if len(matchingNodes.Items) == 0 {
 		// If no matching nodes, ignore the reconcile, but update the status
 		// As we watch the nodes, next time the labels will change on Nodes, it will reconcile
@@ -157,11 +167,14 @@ func (r *RegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		if err := r.deleteAllRegistryResources(ctx, *registry.Spec.Namespace); err != nil {
 			return ctrl.Result{}, fmt.Errorf("error deleting Registry resources: %w", err)
 		}
+		if err := r.reconcileContainerdMirrorConfigMap(ctx, *registry.Spec.Namespace, registry, clusterIP, nil); err != nil {
+			return ctrl.Result{}, fmt.Errorf("error reconciling containerd mirror ConfigMap: %w", err)
+		}
 		return ctrl.Result{}, nil
 	}
 
 	// 6. Update the status.SelectedNodes with the list of matching nodes and deploy node-specific resources
-	nbServersAvailable, err = r.reconcileRSPerNodeResources(ctx, registry, matchingNodes)
+	nbServersAvailable, err = r.reconcileRSPerNodeResources(ctx, registry, matchingNodes, clusterIP)
 	if err != nil {
 		registry.SetAvailable(false)
 		registry.SetReady(false)
@@ -182,6 +195,13 @@ func (r *RegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	serverReady, nbServersReady, err = r.cleanupUnusedRSResources(ctx, registry)
 	if err != nil {
 		return ctrl.Result{}, err
+	}
+
+	// Reconcile the containerd mirror ConfigMap from the selected nodes.
+	if err := r.reconcileContainerdMirrorConfigMap(ctx, *registry.Spec.Namespace, registry, clusterIP, matchingNodes.Items); err != nil {
+		registry.SetAvailable(false)
+		registry.SetReady(false)
+		return ctrl.Result{}, fmt.Errorf("error reconciling containerd mirror ConfigMap: %w", err)
 	}
 
 	// 8. Update the status.Available
@@ -257,23 +277,21 @@ func (r *RegistryReconciler) reconcileRNACoreResources(ctx context.Context, regi
 	return nil
 }
 
-func (r *RegistryReconciler) reconcileRSPerNodeResources(ctx context.Context, registry *metalk8sv1alpha1.Registry, matchingNodes *corev1.NodeList) (int, error) {
+func (r *RegistryReconciler) reconcileRSPerNodeResources(ctx context.Context, registry *metalk8sv1alpha1.Registry, matchingNodes *corev1.NodeList, clusterIP string) (int, error) {
 	nbServersAvailable := 0
 
 	for _, node := range matchingNodes.Items {
-		// Determine NodeIP
-		nodeIP := ""
-		for _, address := range node.Status.Addresses {
-			if address.Type == corev1.NodeInternalIP {
-				nodeIP = address.Address
-				break
-			}
+		nodeIP := getNodeInternalIP(&node)
+		if nodeIP == "" {
+			// Without an InternalIP the server cannot bind to it nor be reached
+			logf.FromContext(ctx).Info("skipping Registry Server resources for node without InternalIP", "node", node.Name)
+			continue
 		}
 
-		if err := r.ReconcileRSExternalServerCertificate(ctx, *registry.Spec.Namespace, node.Name, nodeIP, registry); err != nil {
+		if err := r.ReconcileRSExternalServerCertificate(ctx, *registry.Spec.Namespace, node.Name, nodeIP, clusterIP, registry); err != nil {
 			return nbServersAvailable, fmt.Errorf("error deploying Registry Server external server certificate for node %s: %w", node.Name, err)
 		}
-		if err := r.ReconcileRSStatefulSet(ctx, *registry.Spec.Namespace, node.Name, registry); err != nil {
+		if err := r.ReconcileRSStatefulSet(ctx, *registry.Spec.Namespace, node.Name, nodeIP, registry); err != nil {
 			return nbServersAvailable, fmt.Errorf("error deploying Registry Server StatefulSet for node %s: %w", node.Name, err)
 		}
 
@@ -589,6 +607,7 @@ func (r *RegistryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&cmv1.Certificate{}).
 		Owns(&cmv1.Issuer{}).
 		Owns(&corev1.Secret{}).
+		Owns(&corev1.ConfigMap{}).
 		Owns(&rbacv1.Role{}).
 		Owns(&rbacv1.ClusterRole{}).
 		Owns(&rbacv1.RoleBinding{}).

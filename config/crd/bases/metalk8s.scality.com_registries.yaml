@@ -25,6 +25,9 @@ spec:
     - jsonPath: .status.replicas
       name: Replicas
       type: integer
+    - jsonPath: .status.clusterIP
+      name: ClusterIP
+      type: string
     - jsonPath: .status.readyServerReplicas
       name: Server Replicas
       priority: 1
@@ -171,6 +174,18 @@ spec:
                 description: Log level for Registry Node Agent and Registry Server,
                   defaults to "info"
                 type: string
+              mirrorPropagation:
+                description: MirrorPropagation controls generation of the containerd
+                  registry mirror ConfigMap.
+                properties:
+                  enabled:
+                    default: true
+                    description: Enabled controls whether the mirror config propagation
+                      is active.
+                    type: boolean
+                required:
+                - enabled
+                type: object
               namespace:
                 description: Namespace where the registry resources are deployed,
                   defaults to "metalk8s-registry-system".
@@ -280,6 +295,11 @@ spec:
               available:
                 description: Availability of the registry.
                 type: boolean
+              clusterIP:
+                description: |-
+                  ClusterIP at which the registry is reachable, load-balanced across the
+                  registry server replicas by kube-proxy.
+                type: string
               conditions:
                 description: Conditions of the registry.
                 items:
@@ -336,6 +356,12 @@ spec:
                   - status
                   - type
                   type: object
+                type: array
+              nodeIPs:
+                description: NodeIPs at which the registry is reachable directly on
+                  each selected node.
+                items:
+                  type: string
                 type: array
               ready:
                 description: Readiness of the registry.

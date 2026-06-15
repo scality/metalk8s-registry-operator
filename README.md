@@ -70,6 +70,7 @@ The spec includes:
 | `spec.nodeSelector` | Node selector for scheduling registry node agents |
 | `spec.server` | Registry server image and TLS certificate issuer reference |
 | `spec.agent` | Registry node agent image, TLS issuer, and mTLS authentication (CA secret ref) |
+| `spec.mirrorPropagation` | Controls generation of the containerd registry mirror ConfigMap, enabled by default (`spec.mirrorPropagation.enabled`) |
 
 See [config/samples/metalk8s_v1alpha1_registry.yaml](config/samples/metalk8s_v1alpha1_registry.yaml) for a full example.
 
@@ -81,6 +82,8 @@ The Status includes:
 | ----- | --------------------------- |
 | `status.replicas` | Number of matching nodes (REPLICAS) |
 | `status.selectedNodes` | Names of matching nodes (SELECTED NODES) |
+| `status.clusterIP` | ClusterIP at which the registry is reachable, load-balanced across Registry-Server replicas (CLUSTERIP) |
+| `status.nodeIPs` | Node IPs at which the registry is reachable directly on each selected node |
 | `status.available` | All resources (StatefulSets, Certificates, ...) are created (no matter their status) (AVAILABLE) |
 | `status.agentAvailable` | True, when all expected Registry-Node-Agent are available (no matter their status)  |
 | `status.serverAvailable` | True, when all expected Registry-Server are available (no matter their status) |
@@ -97,6 +100,10 @@ status:
   agentAvailable: true
   agentReady: true
   available: true
+  clusterIP: 10.43.0.10
+  nodeIPs:
+  - 10.0.0.1
+  - 10.0.0.2
   ready: true
   readyAgentReplicas: 2
   readyServerReplicas: 2

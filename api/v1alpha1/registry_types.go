@@ -86,6 +86,12 @@ type RegistryNodeAgentSpec struct {
 	Image *ImageSpec `json:"image,omitempty"`
 }
 
+type MirrorPropagationSpec struct {
+	// Enabled controls whether the mirror config propagation is active.
+	// +kubebuilder:default=true
+	Enabled bool `json:"enabled"`
+}
+
 // RegistrySpec defines the desired state of Registry.
 type RegistrySpec struct {
 	// Log level for Registry Node Agent and Registry Server, defaults to "info"
@@ -113,6 +119,9 @@ type RegistrySpec struct {
 	Server RegistryServerSpec `json:"server"`
 	// Agent is the specification of the registry node agent.
 	Agent RegistryNodeAgentSpec `json:"agent"`
+	// MirrorPropagation controls generation of the containerd registry mirror ConfigMap.
+	// +kubebuilder:validation:Optional
+	MirrorPropagation *MirrorPropagationSpec `json:"mirrorPropagation,omitempty"`
 }
 
 type ProcessStatus struct {
@@ -151,6 +160,11 @@ type RegistryStatus struct {
 	ReadyAgentReplicas *int `json:"readyAgentReplicas,omitempty"`
 	// Selected nodes for the registry, based on NodeSelector.
 	SelectedNodes []string `json:"selectedNodes,omitempty"`
+	// ClusterIP at which the registry is reachable, load-balanced across the
+	// registry server replicas by kube-proxy.
+	ClusterIP string `json:"clusterIP,omitempty"`
+	// NodeIPs at which the registry is reachable directly on each selected node.
+	NodeIPs []string `json:"nodeIPs,omitempty"`
 	// Status per node for the registry,
 	// including availability and readiness of the registry server and node agent.
 	StatusPerNode map[string]NodeStatus `json:"statusPerNode,omitempty"`
@@ -165,6 +179,7 @@ type RegistryStatus struct {
 // +kubebuilder:printcolumn:name="Available",type="boolean",JSONPath=".status.available",priority=1
 // +kubebuilder:printcolumn:name="Ready",type="boolean",JSONPath=".status.ready"
 // +kubebuilder:printcolumn:name="Replicas",type="integer",JSONPath=".status.replicas"
+// +kubebuilder:printcolumn:name="ClusterIP",type="string",JSONPath=".status.clusterIP"
 // +kubebuilder:printcolumn:name="Server Replicas",type="integer",JSONPath=".status.readyServerReplicas",priority=1
 // +kubebuilder:printcolumn:name="Agent Replicas",type="integer",JSONPath=".status.readyAgentReplicas",priority=1
 // +kubebuilder:printcolumn:name="Selected Nodes",type="string",JSONPath=".status.selectedNodes",priority=1
@@ -220,6 +235,9 @@ func (registry *Registry) InitStatus() {
 	}
 	if registry.Status.SelectedNodes == nil {
 		registry.Status.SelectedNodes = []string{}
+	}
+	if registry.Status.NodeIPs == nil {
+		registry.Status.NodeIPs = []string{}
 	}
 	if registry.Status.StatusPerNode == nil {
 		registry.Status.StatusPerNode = make(map[string]NodeStatus)
@@ -281,6 +299,12 @@ func (r *Registry) GetSolutionsPath() string {
 		return *r.Spec.SolutionsPath
 	}
 	return DEFAULT_SOLUTIONS_PATH
+}
+
+// IsMirrorPropagationEnabled returns whether the containerd mirror ConfigMap should
+// be generated. It defaults to true when the mirrorPropagation section is omitted.
+func (r *Registry) IsMirrorPropagationEnabled() bool {
+	return r.Spec.MirrorPropagation == nil || r.Spec.MirrorPropagation.Enabled
 }
 
 func (r *Registry) SetAvailable(available bool) {

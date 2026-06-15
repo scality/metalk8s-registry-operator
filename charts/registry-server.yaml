@@ -16,6 +16,7 @@ spec:
       labels:
         app.kubernetes.io/name: metalk8s-registry-server
     spec:
+      hostNetwork: true
       containers:
       - name: registry-server
         env:
@@ -33,7 +34,6 @@ spec:
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 5000
-          hostPort: 5000
           name: http
           protocol: TCP
         livenessProbe:
