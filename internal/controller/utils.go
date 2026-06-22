@@ -347,7 +347,7 @@ func (r *RegistryReconciler) ChangeNamespace(ctx context.Context, namespace stri
 
 	for _, cert := range r.RNA.Certificates {
 		// We should find at least certificate for webhooks and metrics server
-		dnsNames := []string{}
+		dnsNames := make([]string, 0, len(cert.Spec.DNSNames))
 		// Change namespace in DNSNames
 		for _, dnsName := range cert.Spec.DNSNames {
 			newDNSName := strings.Replace(
@@ -378,7 +378,7 @@ func (r *RegistryReconciler) ChangeNamespace(ctx context.Context, namespace stri
 		}
 		vwc.SetAnnotations(annotations)
 
-		webhooks := []admissionregistrationv1.ValidatingWebhook{}
+		webhooks := make([]admissionregistrationv1.ValidatingWebhook, 0, len(vwc.Webhooks))
 		// Change namespace in admissionReviewVersions
 		for _, webhook := range vwc.Webhooks {
 			webhook.ClientConfig.Service.Namespace = namespace
@@ -388,7 +388,7 @@ func (r *RegistryReconciler) ChangeNamespace(ctx context.Context, namespace stri
 	}
 
 	for _, roleBinding := range r.RNA.RoleBindings {
-		subjects := []rbacv1.Subject{}
+		subjects := make([]rbacv1.Subject, 0, len(roleBinding.Subjects))
 		// Change namespace in subjects
 		for _, subject := range roleBinding.Subjects {
 			if subject.Namespace == metalk8sv1alpha1.DEFAULT_NAMESPACE {
@@ -400,7 +400,7 @@ func (r *RegistryReconciler) ChangeNamespace(ctx context.Context, namespace stri
 	}
 
 	for _, clusterRoleBinding := range r.RNA.ClusterRoleBindings {
-		subjects := []rbacv1.Subject{}
+		subjects := make([]rbacv1.Subject, 0, len(clusterRoleBinding.Subjects))
 		// Change namespace in subjects
 		for _, subject := range clusterRoleBinding.Subjects {
 			if subject.Namespace == metalk8sv1alpha1.DEFAULT_NAMESPACE {
@@ -437,7 +437,7 @@ func (cpt componentSts) setAffinity(nodeName string) {
 }
 
 func (cpt componentSts) setNodeLabel(nodeName string) {
-	cpt.sts.Spec.Template.Labels["node"] = nodeName
+	cpt.sts.Spec.Template.Labels[NODE_LABEL_KEY] = nodeName
 }
 
 /*
@@ -453,7 +453,7 @@ func (r *RegistryReconciler) ReconcileRNAStatefulSet(ctx context.Context, regist
 	registryNodeAgentStatefulSets := &appsv1.StatefulSetList{}
 	err := r.List(ctx, registryNodeAgentStatefulSets,
 		client.InNamespace(registryNamespace),
-		client.MatchingLabels(map[string]string{REG_APP_LABEL_KEY: RNA_APP_LABEL_VALUE, "node": nodeName}),
+		client.MatchingLabels(map[string]string{REG_APP_LABEL_KEY: RNA_APP_LABEL_VALUE, NODE_LABEL_KEY: nodeName}),
 	)
 	if err != nil {
 		return err
@@ -467,7 +467,7 @@ func (r *RegistryReconciler) ReconcileRNAStatefulSet(ctx context.Context, regist
 	// Set metadata on StatefulSet
 	registryNodeAgentStatefulSet.sts.SetName(fmt.Sprintf("%s-%s", RNA_STATEFULSET_PREFIX, nodeToken))
 	registryNodeAgentStatefulSet.sts.SetNamespace(registryNamespace)
-	registryNodeAgentStatefulSet.sts.Labels["node"] = nodeName
+	registryNodeAgentStatefulSet.sts.Labels[NODE_LABEL_KEY] = nodeName
 	if err := controllerutil.SetControllerReference(registry, registryNodeAgentStatefulSet.sts, r.Scheme); err != nil {
 		return err
 	}
@@ -528,7 +528,7 @@ func (r *RegistryReconciler) ReconcileRNAService(ctx context.Context, registryNa
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, registryNodeAgentService, func() error {
 		registryNodeAgentService.SetLabels(map[string]string{
 			REG_APP_LABEL_KEY: RNA_APP_LABEL_VALUE,
-			"node":            nodeName,
+			NODE_LABEL_KEY:    nodeName,
 		})
 		err := controllerutil.SetControllerReference(registry, registryNodeAgentService, r.Scheme)
 		if err != nil {
@@ -546,7 +546,7 @@ func (r *RegistryReconciler) ReconcileRNAService(ctx context.Context, registryNa
 		registryNodeAgentService.Spec.Selector = map[string]string{
 			REG_APP_LABEL_KEY: RNA_APP_LABEL_VALUE,
 			"control-plane":   "controller-manager",
-			"node":            nodeName,
+			NODE_LABEL_KEY:    nodeName,
 		}
 		registryNodeAgentService.Spec.Type = corev1.ServiceTypeClusterIP
 
@@ -568,7 +568,7 @@ func (r *RegistryReconciler) ReconcileRNAInternalServerCertificate(ctx context.C
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, registryNodeAgentServerCertificate, func() error {
 		registryNodeAgentServerCertificate.SetLabels(map[string]string{
 			REG_APP_LABEL_KEY: RNA_APP_LABEL_VALUE,
-			"node":            nodeName,
+			NODE_LABEL_KEY:    nodeName,
 		})
 		err := controllerutil.SetControllerReference(registry, registryNodeAgentServerCertificate, r.Scheme)
 		if err != nil {
@@ -609,7 +609,7 @@ func (r *RegistryReconciler) ReconcileRNAExternalServerCertificate(ctx context.C
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, registryNodeAgentServerCertificate, func() error {
 		registryNodeAgentServerCertificate.SetLabels(map[string]string{
 			REG_APP_LABEL_KEY: RNA_APP_LABEL_VALUE,
-			"node":            nodeName,
+			NODE_LABEL_KEY:    nodeName,
 		})
 		err := controllerutil.SetControllerReference(registry, registryNodeAgentServerCertificate, r.Scheme)
 		if err != nil {
@@ -646,7 +646,7 @@ func (r *RegistryReconciler) ReconcileRNAClientCertificate(ctx context.Context, 
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, registryNodeAgentCertificate, func() error {
 		registryNodeAgentCertificate.SetLabels(map[string]string{
 			REG_APP_LABEL_KEY: RNA_APP_LABEL_VALUE,
-			"node":            nodeName,
+			NODE_LABEL_KEY:    nodeName,
 		})
 		err := controllerutil.SetControllerReference(registry, registryNodeAgentCertificate, r.Scheme)
 		if err != nil {
@@ -788,7 +788,7 @@ func (r *RegistryReconciler) ReconcileRSStatefulSet(ctx context.Context, registr
 	registryServerStatefulSets := &appsv1.StatefulSetList{}
 	err := r.List(ctx, registryServerStatefulSets,
 		client.InNamespace(registryNamespace),
-		client.MatchingLabels(map[string]string{REG_APP_LABEL_KEY: RS_APP_LABEL_VALUE, "node": nodeName}),
+		client.MatchingLabels(map[string]string{REG_APP_LABEL_KEY: RS_APP_LABEL_VALUE, NODE_LABEL_KEY: nodeName}),
 	)
 	if err != nil {
 		return err
@@ -802,7 +802,7 @@ func (r *RegistryReconciler) ReconcileRSStatefulSet(ctx context.Context, registr
 	// Set metadata on StatefulSet
 	registryServerStatefulSet.sts.SetName(fmt.Sprintf("%s-%s", RS_STATEFULSET_PREFIX, nodeToken))
 	registryServerStatefulSet.sts.SetNamespace(registryNamespace)
-	registryServerStatefulSet.sts.Labels["node"] = nodeName
+	registryServerStatefulSet.sts.Labels[NODE_LABEL_KEY] = nodeName
 	if err := controllerutil.SetControllerReference(registry, registryServerStatefulSet.sts, r.Scheme); err != nil {
 		return err
 	}
@@ -853,7 +853,7 @@ func (r *RegistryReconciler) ReconcileRSExternalServerCertificate(ctx context.Co
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, registryServerServerCertificate, func() error {
 		registryServerServerCertificate.SetLabels(map[string]string{
 			REG_APP_LABEL_KEY: RS_APP_LABEL_VALUE,
-			"node":            nodeName,
+			NODE_LABEL_KEY:    nodeName,
 		})
 		err := controllerutil.SetControllerReference(registry, registryServerServerCertificate, r.Scheme)
 		if err != nil {
