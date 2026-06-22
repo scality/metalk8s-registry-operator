@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/devcontainers/go:1.25-trixie
+FROM mcr.microsoft.com/devcontainers/go:1.26-trixie@sha256:232b16db710cedd1ad955e78ef973d6252ddc1149f299b1eaeb1caaa8c61caf8
 
 USER vscode
 
