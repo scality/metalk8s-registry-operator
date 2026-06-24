@@ -129,7 +129,7 @@ func (r *SolutionArchiveReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 				Name: nsaName,
 			},
 		}
-		nodeSolutionArchive.SetLabels(map[string]string{"node": node})
+		nodeSolutionArchive.SetLabels(map[string]string{NODE_LABEL_KEY: node})
 
 		_, err := controllerutil.CreateOrUpdate(ctx, r.Client, nodeSolutionArchive, func() error {
 			nodeSolutionArchive.Spec = nsav1alpha1.NodeSolutionArchiveSpec{
