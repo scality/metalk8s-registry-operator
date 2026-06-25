@@ -1,0 +1,24 @@
+name: 'Destroy the Kubernetes Cluster'
+description: 'Uses Pulumi to clean up the created cluster'
+inputs:
+  # AWS credentials
+  aws_account_id:
+    description: "The AWS account ID for OIDC"
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: arn:aws:iam::${{ inputs.aws_account_id }}:role/scality-github-e2e-infrastructure
+        role-session-name: GitHubActions-${{ github.run_id }}
+        aws-region: eu-north-1
+
+    - name: Destroy the cluster
+      uses: scality/platform-spawner@v2.0.0
+      with:
+          action: destroy
+          stack_name: "${{ github.workflow }}-${{ github.run_number }}"
+          store_to_s3: true

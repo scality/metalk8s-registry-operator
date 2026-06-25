@@ -1,0 +1,49 @@
+name: 'Deploy the Registry Operator'
+description: 'Deploys the registry operator from a provided manifest'
+inputs:
+  pull_secret:
+    description: "The GIT secret to pull images"
+    required: true
+
+  manifest:
+    description: "Path to the manifest to deploy"
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+
+    - name: Create pull secret
+      shell: bash
+      env:
+        PULL_SECRET: ${{ inputs.pull_secret }}
+      run: |-
+        # Operator namespace + pull secret.
+        kubectl create ns metalk8s-registry-system
+        kubectl create secret docker-registry registry-pull-secret \
+          -n metalk8s-registry-system \
+          --docker-server=ghcr.io --docker-username=ci \
+          --docker-password="${PULL_SECRET}" --docker-email=ci@scality.com
+
+        # The e2e tests deploy Registry StatefulSets in this namespace and
+        # reference the same pull secret via
+        # .spec.{agent,server}.image.pullSecrets. Create both eagerly so
+        # tests never have to wait for image pulls that would otherwise be
+        # routed through the not-yet-running mirror.
+        kubectl create ns metalk8s-registry
+        kubectl create secret docker-registry registry-pull-secret \
+          -n metalk8s-registry \
+          --docker-server=ghcr.io --docker-username=ci \
+          --docker-password="${PULL_SECRET}" --docker-email=ci@scality.com
+
+    - name: Deploy the operator
+      shell: bash
+      env:
+        MANIFEST_YAML: ${{ inputs.manifest }}
+      run: |-
+        kubectl apply -f "$MANIFEST_YAML"
+        kubectl patch deploy -n metalk8s-registry-system \
+          metalk8s-registry-operator-controller-manager \
+          --type='json' -p='[{"op": "add", "path": "/spec/template/spec/imagePullSecrets", "value": [{"name": "registry-pull-secret"}]}]'
+        kubectl -n metalk8s-registry-system rollout status \
+          deploy/metalk8s-registry-operator-controller-manager --timeout=5m
