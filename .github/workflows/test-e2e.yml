@@ -2,11 +2,21 @@ name: E2E Tests
 
 on:
   workflow_call:
+    inputs:
+      image-tag:
+        type: string
+        description: "tag of the registry operator image to use when deploying"
+        required: true
+
+permissions:
+  id-token: write
+  actions: read
+  contents: read
 
 jobs:
   test-e2e:
     name: Run on Ubuntu
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Clone the code
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -16,17 +26,46 @@ jobs:
         with:
           token: ${{ secrets.GIT_ACCESS_TOKEN }}
 
-      - name: Install the latest version of kind
-        run: |
-          curl -Lo ./kind https://kind.sigs.k8s.io/dl/latest/kind-linux-amd64
-          chmod +x ./kind
-          sudo mv ./kind /usr/local/bin/kind
+      - name: Deploy the kubernetes cluster
+        uses: ./.github/actions/spawn
+        with:
+            aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+            aws_secret_key: ${{ secrets.AWS_SECRET_KEY }}
+            aws_region: ${{ secrets.AWS_REGION }}
+            artifacts_user: ${{ secrets.ARTIFACTS_USER }}
+            artifacts_password: ${{ secrets.ARTIFACTS_PASSWORD }}
 
-      - name: Verify kind installation
-        run: kind version
+      - name: Build the installer
+        run: |
+          go mod tidy
+          make build-installer IMG="${{ inputs.image-tag }}"
+          echo "installer=$(realpath ./dist/install.yaml)" >> $GITHUB_OUTPUT
+
+      - name: deploy the Registry operator
+        uses: ./.github/actions/deploy
+        with:
+            manifest: ${{ steps.build-installer.outputs.installer }}
+            pull_secret: ${{ secrets.GIT_ACCESS_TOKEN }}
+            registry_nodes: "node-2 node-3"
 
       - name: Running Test e2e
         run: |
           go mod tidy
           #TODO: uncomment when adding E2E tests
           #make test-e2e
+
+  destroy:
+    needs:
+      - test-e2e
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Destroy platform
+        uses: ./.github/actions/destroy
+        with:
+          aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws_secret_key: ${{ secrets.AWS_SECRET_KEY }}
+          aws_region: ${{ vars.AWS_REGION }}

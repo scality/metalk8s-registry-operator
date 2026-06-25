@@ -1,0 +1,26 @@
+name: 'Destroy the Kubernetes Cluster'
+description: 'Uses Pulumi to clean up the created cluster'
+inputs:
+  # AWS credentials
+  aws_access_key_id:
+    description: "The AWS access key"
+    required: true
+  aws_secret_key:
+    description: "The AWS secret key"
+    required: true
+  aws_region:
+    description: "The AWS region"
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Destroy the cluster
+      uses: scality/platform-spawner@improvement/use-aws-oidc
+      with:
+          action: destroy
+          aws_access_key_id: ${{ inputs.aws_access_key_id }}
+          aws_secret_key: ${{ inputs.aws_secret_key }}
+          aws_region: ${{ inputs.aws_region }}
+          stack_name: "${{ github.workflow }}-${{ github.run_number }}"
+          store_to_s3: true

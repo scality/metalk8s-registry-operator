@@ -1,0 +1,43 @@
+name: 'Deploy the Registry Operator'
+description: 'Deploys the registry operator from a provided manifest'
+inputs:
+  pull_secret:
+    description: "The GIT secret to pull images"
+    required: true
+
+  manifest:
+    description: "Path to the manifest to deploy"
+    required: true
+
+  registry_nodes:
+    description: "comma-separated list of nodes to deploy the registries on"
+
+runs:
+  using: "composite"
+  steps:
+
+    - name: Create pull secret
+      uses: shell
+      env:
+        PULL_SECRET: ${{ inputs.pull_secret }}
+      run: |-
+        kubectl create ns metalk8s-registry-system
+        kubectl create secret docker-registry registry-pull-secret -n metalk8s-registry-system \
+          --docker-server=ghcr.io  --docker-username=ci \
+          --docker-password=${{ inputs.pull_secret }} --docker-email=ci@scality.com
+
+    - name: Deploy the operator
+      uses: shell
+      env:
+        MANIFEST_YAML: ${{ inputs.manifest }}
+      run: |-
+        kubectl apply -f "$MANIFEST_YAML"
+        kubectl patch deploy -n metalk8s-registry-system \
+          metalk8s-registry-operator-controller-manager \
+          --type='json' -p='[{"op": "add", "path": "/spec/template/spec/imagePullSecrets", "value": [{"name": "registry-pull-secret"}]}]'
+
+    - name: Label the registry nodes
+      uses: shell
+      env:
+        REGISTRY_NODES: ${{ inputs.registry_nodes }}
+      run: kubectl label nodes "$REGISTRY_NODES" "node-role.kubernetes.io/registry="
