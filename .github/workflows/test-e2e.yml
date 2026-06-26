@@ -3,7 +3,7 @@ name: E2E Tests
 on:
   workflow_call:
     inputs:
-      image-tag:
+      image_tag:
         type: string
         description: "tag of the registry operator image to use when deploying"
         required: true
@@ -35,10 +35,14 @@ jobs:
             artifacts_user: ${{ secrets.ARTIFACTS_USER }}
             artifacts_password: ${{ secrets.ARTIFACTS_PASSWORD }}
 
+      - name: Export KUBECONFIG for subsequent steps
+        run: echo "KUBECONFIG=$(pwd)/kubeconfig" >> "$GITHUB_ENV"
+
       - name: Build the installer
+        id: build-installer
         run: |
           go mod tidy
-          make build-installer IMG="${{ inputs.image-tag }}"
+          make build-installer IMG="${{ inputs.image_tag }}"
           echo "installer=$(realpath ./dist/install.yaml)" >> $GITHUB_OUTPUT
 
       - name: deploy the Registry operator
@@ -49,10 +53,7 @@ jobs:
             registry_nodes: "node-2 node-3"
 
       - name: Running Test e2e
-        run: |
-          go mod tidy
-          #TODO: uncomment when adding E2E tests
-          #make test-e2e
+        run: make test-e2e
 
   destroy:
     needs:
@@ -61,11 +62,11 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
       - name: Destroy platform
         uses: ./.github/actions/destroy
         with:
           aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws_secret_key: ${{ secrets.AWS_SECRET_KEY }}
-          aws_region: ${{ vars.AWS_REGION }}
+          aws_region: ${{ secrets.AWS_REGION }}

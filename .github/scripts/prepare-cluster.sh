@@ -49,20 +49,22 @@ scp_to() {
 }
 
 # --------------------------------------------------------------------------
-# Resolve "latest" versions for runtime components.
+# Pinned versions for runtime components. Bump intentionally — these versions
+# are validated against the operator's e2e suite, leaving them floating would
+# make CI runs non-reproducible and could surface upstream regressions as
+# unrelated test failures.
 # --------------------------------------------------------------------------
-resolve_latest() {
-  local repo="$1"
-  curl -fsSL "https://api.github.com/repos/${repo}/releases/latest" \
-    | grep -oP '"tag_name":\s*"\K[^"]+'
-}
+CONTAINERD_TAG="v2.3.2"
+RUNC_TAG="v1.5.0"
+FLANNEL_TAG="v0.27.4"
+CERT_MANAGER_TAG="v1.20.2"
 
-echo "==> Resolving latest releases"
-CONTAINERD_TAG="$(resolve_latest containerd/containerd)"       # e.g. v2.2.5
-RUNC_TAG="$(resolve_latest opencontainers/runc)"                # e.g. v1.3.6
-echo "    containerd:  ${CONTAINERD_TAG}"
-echo "    runc:        ${RUNC_TAG}"
-echo "    kubernetes:  ${KUBE_VERSION} (repo minor ${KUBE_MINOR})"
+echo "==> Component versions"
+echo "    containerd:   ${CONTAINERD_TAG}"
+echo "    runc:         ${RUNC_TAG}"
+echo "    flannel:      ${FLANNEL_TAG}"
+echo "    cert-manager: ${CERT_MANAGER_TAG}"
+echo "    kubernetes:   ${KUBE_VERSION} (repo minor ${KUBE_MINOR})"
 
 CONTAINERD_VER="${CONTAINERD_TAG#v}"
 CONTAINERD_URL="https://github.com/containerd/containerd/releases/download/${CONTAINERD_TAG}/containerd-${CONTAINERD_VER}-linux-amd64.tar.gz"
@@ -72,7 +74,7 @@ RUNC_URL="https://github.com/opencontainers/runc/releases/download/${RUNC_TAG}/r
 # (bridge, host-local, portmap, loopback, flannel) into /opt/cni/bin via an
 # init container, so we don't pre-install the containernetworking/plugins
 # bundle here.
-FLANNEL_MANIFEST="https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml"
+FLANNEL_MANIFEST="https://github.com/flannel-io/flannel/releases/download/${FLANNEL_TAG}/kube-flannel.yml"
 
 # --------------------------------------------------------------------------
 # Build the node list.
@@ -229,7 +231,12 @@ done
 # networks directly, then fetch the kubeconfig from node-1.
 # --------------------------------------------------------------------------
 echo "==> Starting sshuttle through bastion"
-sshuttle --ssh-cmd 'ssh -F ssh_config' --daemon \
+if ! command -v sshuttle >/dev/null 2>&1; then
+  echo "    sshuttle not found; installing via apt"
+  sudo apt-get update -qq
+  sudo apt-get install -y --no-install-recommends sshuttle
+fi
+sudo sshuttle --ssh-cmd 'ssh -F ssh_config' --daemon \
   -r bastion 172.30.100.0/24 172.30.200.0/24
 
 echo "==> Fetching kubeconfig from ${CONTROL_PLANE_NODE} to ./kubeconfig"
@@ -255,9 +262,8 @@ ssh_sudo "$CONTROL_PLANE_NODE" "
 "
 
 # --------------------------------------------------------------------------
-# Deploy cert-manager (latest stable release) and wait for it to be ready.
+# Deploy cert-manager and wait for it to be ready.
 # --------------------------------------------------------------------------
-CERT_MANAGER_TAG="$(resolve_latest cert-manager/cert-manager)"
 echo "==> Deploying cert-manager ${CERT_MANAGER_TAG}"
 ssh_sudo "$CONTROL_PLANE_NODE" "
   export KUBECONFIG=/etc/kubernetes/admin.conf

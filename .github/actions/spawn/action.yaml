@@ -43,7 +43,7 @@ runs:
               platform-spawner:instance_count: 4
 
     - name: Ensure deployed nodes are reachable
-      uses: shell
+      shell: bash
       env:
         MAX_ATTEMPTS: "10"
         SLEEP_INTERVAL: "5"
@@ -70,8 +70,8 @@ runs:
         done
 
     - name: Prepare the cluster with kubeadm
-      uses: shell
+      shell: bash
       env:
         NODE_COUNT: "4"
-        KUBE_VERSION: "1.34.9"
+        KUBE_VERSION: "v1.34.9"
       run: ./.github/scripts/prepare-cluster.sh
