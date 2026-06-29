@@ -7,7 +7,8 @@ This is a **Go Kubernetes operator** that manages registry infrastructure for di
 - Validation/mutation webhooks (`internal/webhook/v1alpha1/`)
 - Helm charts for deployment (`charts/`)
 - Kustomize manifests (`config/`)
-- E2E tests using Kind (`test/e2e/`)
+- Integration tests using envtest (`test/integration/`)
+- End-to-end tests against a live cluster (`test/e2e/`)
 
 ## Tech stack
 
@@ -19,8 +20,8 @@ This is a **Go Kubernetes operator** that manages registry infrastructure for di
 
 ## Common commands
 
-- `make test` — run unit tests
-- `make test-e2e` — run E2E tests (requires Kind)
+- `make test` — run unit and integration tests (envtest)
+- `make test-e2e` — run the e2e suite against the cluster pointed to by `$KUBECONFIG`
 - `make manifests` — regenerate CRD manifests
 - `make generate` — regenerate deepcopy and other generated code
 - `make build` — build the operator binary
