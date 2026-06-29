@@ -112,6 +112,10 @@ vet: download-manifests ## Run go vet against code.
 test: manifests generate fmt vet setup-envtest download-manifests ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out
 
+.PHONY: test-e2e
+test-e2e: ## Run the e2e suite against the cluster pointed to by $$KUBECONFIG.
+	go test ./test/e2e/... -v -ginkgo.v -timeout 30m
+
 REGISTRY_NODE_AGENT := $(shell go list -f '{{.Version}}' -m github.com/scality/metalk8s-registry-node-agent)
 dist/registry-node-agent.yaml:
 	@mkdir -p $(@D)
