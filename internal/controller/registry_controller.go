@@ -20,15 +20,18 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"sync"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	cmv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
@@ -56,6 +59,14 @@ type RegistryReconciler struct {
 	Scheme *runtime.Scheme
 	RNA    *utils.RegistryComponent
 	RS     *utils.RegistryComponent
+
+	// A Registry is unique in a cluster (enforced by the validating webhook), so we
+	// only ever need to track a single one. mTLSCASecret is the reference to the mTLS
+	// CA Secret it uses and registryName its name, both recorded during reconciliation
+	// and used to reconcile the Registry back when its mTLS CA Secret changes.
+	mu           sync.RWMutex
+	mTLSCASecret corev1.SecretReference
+	registryName string
 }
 
 // +kubebuilder:rbac:groups=metalk8s.scality.com,resources=registries,verbs=get;list;watch;create;update;patch;delete
@@ -125,7 +136,12 @@ func (r *RegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	r.ChangeNamespace(ctx, *registry.Spec.Namespace)
 
 	// 4. Reconcile the Registry Node Agent generic infrastructure resources
-	if err := r.reconcileRNACoreResources(ctx, registry); err != nil {
+	//
+	// mTLSCAsHash contains the hash of the mTLS CA certificate(s) used when uploading ISO files.
+	// This hash is added as a annotation on each Registry-Node-Agent pods to ensure
+	// that the mTLS CA certificate(s) is(are) accurate(s).
+	var mTLSCAsHash string
+	if err := r.reconcileRNACoreResources(ctx, registry, &mTLSCAsHash); err != nil {
 		registry.SetAvailable(false)
 		registry.SetReady(false)
 		registry.Status.ReadyAgentReplicas = ptr.To(0)
@@ -185,7 +201,7 @@ func (r *RegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		registry.SetReady(false)
 		return ctrl.Result{}, err
 	}
-	nbAgentsAvailable, err = r.reconcileRNAPerNodeResources(ctx, registry, matchingNodes)
+	nbAgentsAvailable, err = r.reconcileRNAPerNodeResources(ctx, registry, matchingNodes, mTLSCAsHash)
 	if err != nil {
 		registry.SetAvailable(false)
 		registry.SetReady(false)
@@ -234,6 +250,13 @@ func (r *RegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 func (r *RegistryReconciler) handleFinalizerAndDeletion(ctx context.Context, registry *metalk8sv1alpha1.Registry) (error, bool) {
 	// examine DeletionTimestamp to determine if object is under deletion
 	if registry.DeletionTimestamp.IsZero() {
+		// Record the mTLS CA Secret and Registry name so the Secret watch can
+		// reconcile this Registry when the CA Secret changes.
+		r.mu.Lock()
+		r.mTLSCASecret = registry.Spec.Agent.Authentication.MTLS.CASecretRef
+		r.registryName = registry.GetName()
+		r.mu.Unlock()
+
 		// The object is not being deleted, so if it does not have our finalizer,
 		// then lets add the finalizer and update the object. This is equivalent
 		// to registering our finalizer.
@@ -246,7 +269,12 @@ func (r *RegistryReconciler) handleFinalizerAndDeletion(ctx context.Context, reg
 		return nil, false
 	}
 
-	// The object is being deleted
+	// The object is being deleted, stop tracking its mTLS CA Secret.
+	r.mu.Lock()
+	r.mTLSCASecret = corev1.SecretReference{}
+	r.registryName = ""
+	r.mu.Unlock()
+
 	if controllerutil.ContainsFinalizer(registry, FINALIZER_NAME) {
 		// our finalizer is present, so lets handle any external dependency
 		if err := r.deleteAllRegistryResources(ctx, *registry.Spec.Namespace); err != nil {
@@ -266,7 +294,7 @@ func (r *RegistryReconciler) handleFinalizerAndDeletion(ctx context.Context, reg
 	return nil, true
 }
 
-func (r *RegistryReconciler) reconcileRNACoreResources(ctx context.Context, registry *metalk8sv1alpha1.Registry) (err error) {
+func (r *RegistryReconciler) reconcileRNACoreResources(ctx context.Context, registry *metalk8sv1alpha1.Registry, mTLSCAsHash *string) (err error) {
 	err = r.ReconcileRNAGenericResources(ctx, registry)
 	if err != nil {
 		return fmt.Errorf("error reconciling Registry Node Agent generic resources: %w", err)
@@ -282,7 +310,7 @@ func (r *RegistryReconciler) reconcileRNACoreResources(ctx context.Context, regi
 		return fmt.Errorf("error deploying Registry Node Agent CA issuer: %w", err)
 	}
 
-	err = r.ReconcileRNAExternalClientCACertificate(ctx, *registry.Spec.Namespace, registry)
+	err = r.ReconcileRNAExternalClientCACertificate(ctx, *registry.Spec.Namespace, registry, mTLSCAsHash)
 	if err != nil {
 		return fmt.Errorf("error deploying Registry Node Agent external client CA certificate: %w", err)
 	}
@@ -321,7 +349,7 @@ func (r *RegistryReconciler) reconcileRSPerNodeResources(ctx context.Context, re
 	return nbServersAvailable, nil
 }
 
-func (r *RegistryReconciler) reconcileRNAPerNodeResources(ctx context.Context, registry *metalk8sv1alpha1.Registry, matchingNodes *corev1.NodeList) (int, error) {
+func (r *RegistryReconciler) reconcileRNAPerNodeResources(ctx context.Context, registry *metalk8sv1alpha1.Registry, matchingNodes *corev1.NodeList, mTLSCAsHash string) (int, error) {
 	nbAgentsAvailable := 0
 
 	for _, node := range matchingNodes.Items {
@@ -335,7 +363,7 @@ func (r *RegistryReconciler) reconcileRNAPerNodeResources(ctx context.Context, r
 		}
 		// Update the field "SelectedNodes" in registry Status
 		registry.Status.SelectedNodes = append(registry.Status.SelectedNodes, node.Name)
-		if err := r.ReconcileRNAStatefulSet(ctx, *registry.Spec.Namespace, node.Name, registry); err != nil {
+		if err := r.ReconcileRNAStatefulSet(ctx, *registry.Spec.Namespace, node.Name, mTLSCAsHash, registry); err != nil {
 			return nbAgentsAvailable, fmt.Errorf("error deploying Registry Node Agent StatefulSet for node %s: %w", node.Name, err)
 		}
 		if err := r.ReconcileRNAService(ctx, *registry.Spec.Namespace, node.Name, registry); err != nil {
@@ -564,6 +592,32 @@ func (r *RegistryReconciler) deleteUnusedRSResourcesByNode(ctx context.Context, 
 	return nil
 }
 
+// isMTLSCASecret is a predicate keeping only the events on the mTLS CA Secret
+// currently used by the Registry.
+func (r *RegistryReconciler) isMTLSCASecret(obj client.Object) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	return r.registryName != "" &&
+		obj.GetName() == r.mTLSCASecret.Name &&
+		obj.GetNamespace() == r.mTLSCASecret.Namespace
+}
+
+// enqueueRegistry enqueues the (unique) Registry tracked by the reconciler. It is
+// used to reconcile the Registry when its mTLS CA Secret changes, without having to
+// look up which Registry owns the Secret.
+func (r *RegistryReconciler) enqueueRegistry(_ context.Context, _ client.Object) []reconcile.Request {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	if r.registryName == "" {
+		return nil
+	}
+	return []reconcile.Request{
+		{NamespacedName: types.NamespacedName{Name: r.registryName}},
+	}
+}
+
 // matchingRegistries is a function that returns the Registry objects when event on Node matches
 // their nodeSelector
 func matchingRegistries(c client.Client) func(ctx context.Context, obj client.Object) []reconcile.Request {
@@ -627,6 +681,11 @@ func (r *RegistryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&rbacv1.RoleBinding{}).
 		Owns(&rbacv1.ClusterRoleBinding{}).
 		Watches(&corev1.Node{}, handler.EnqueueRequestsFromMapFunc(matchingRegistries(r.Client))).
+		Watches(
+			&corev1.Secret{},
+			handler.EnqueueRequestsFromMapFunc(r.enqueueRegistry),
+			builder.WithPredicates(predicate.NewPredicateFuncs(r.isMTLSCASecret)),
+		).
 		Named("registry").
 		Complete(r)
 }
