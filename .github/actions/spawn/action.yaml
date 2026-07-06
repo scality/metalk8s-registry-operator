@@ -2,14 +2,8 @@ name: 'Spawn a Kubernetes Cluster'
 description: 'Uses Pulumi and Kubeadm to bootstrap a platform'
 inputs:
   # AWS credentials
-  aws_access_key_id:
-    description: "The AWS access key"
-    required: true
-  aws_secret_key:
-    description: "The AWS secret key"
-    required: true
-  aws_region:
-    description: "The AWS region"
+  aws_account_id:
+    description: "The AWS account ID for OIDC"
     required: true
 
   # Artifacts credentials
@@ -25,22 +19,25 @@ inputs:
 runs:
   using: "composite"
   steps:
-    - name: Spawn the cluster
-      uses: scality/platform-spawner@improvement/use-aws-oidc
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
       with:
-          aws_access_key_id: ${{ inputs.aws_access_key_id }}
-          aws_secret_key: ${{ inputs.aws_secret_key }}
-          aws_region: ${{ inputs.aws_region }}
+        role-to-assume: arn:aws:iam::${{ inputs.aws_account_id }}:role/scality-github-e2e-infrastructure
+        role-session-name: GitHubActions-${{ github.run_id }}
+        aws-region: eu-north-1
+
+    - name: Spawn the cluster
+      uses: scality/platform-spawner@v2.0.0
+      with:
           artifacts_user: ${{ inputs.artifacts_user }}
           artifacts_password: ${{ inputs.artifacts_password }}
           stack_name: "${{ github.workflow }}-${{ github.run_number }}"
           store_to_s3: true
           configuration: |-
-            config:
-              platform-spawner:product: registry-test
-              platform-spawner:ssh_private_key_create: "true"
-              platform-spawner:instance_image: rocky-9
-              platform-spawner:instance_count: 4
+            product: registry-test
+            ssh_private_key_create: "true"
+            instance_image: rocky-9
+            instance_count: 4
 
     - name: Ensure deployed nodes are reachable
       shell: bash

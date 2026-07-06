@@ -29,9 +29,7 @@ jobs:
       - name: Deploy the kubernetes cluster
         uses: ./.github/actions/spawn
         with:
-            aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-            aws_secret_key: ${{ secrets.AWS_SECRET_KEY }}
-            aws_region: ${{ secrets.AWS_REGION }}
+            aws_account_id: ${{ vars.AWS_MAIN_ACCOUNT_ID }}
             artifacts_user: ${{ secrets.ARTIFACTS_USER }}
             artifacts_password: ${{ secrets.ARTIFACTS_PASSWORD }}
 
@@ -67,6 +65,4 @@ jobs:
       - name: Destroy platform
         uses: ./.github/actions/destroy
         with:
-          aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws_secret_key: ${{ secrets.AWS_SECRET_KEY }}
-          aws_region: ${{ secrets.AWS_REGION }}
+          aws_account_id: ${{ vars.AWS_MAIN_ACCOUNT_ID }}
