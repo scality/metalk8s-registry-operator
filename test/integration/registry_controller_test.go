@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package k8s
+package integration
 
 import (
 	"context"
@@ -1288,7 +1288,7 @@ var _ = Describe("Registry Controller", func() {
 				return nil
 			})
 			Expect(err).NotTo(HaveOccurred())
-			DeferCleanup(func() { _ = k8sClient.Delete(ctx, resource) })
+			DeferCleanup(func() { deleteResource(ctx, k8sClient, resource) })
 
 			By("waiting for the node IPs in status")
 			createdResource := &metalk8sv1alpha1.Registry{}
@@ -1388,7 +1388,7 @@ var _ = Describe("Registry Controller", func() {
 				return nil
 			})
 			Expect(err).NotTo(HaveOccurred())
-			DeferCleanup(func() { _ = k8sClient.Delete(ctx, resource) })
+			DeferCleanup(func() { deleteResource(ctx, k8sClient, resource) })
 
 			By("waiting for the ClusterIP in status")
 			createdResource := &metalk8sv1alpha1.Registry{}
@@ -1477,7 +1477,7 @@ var _ = Describe("Registry Controller", func() {
 				return nil
 			})
 			Expect(err).NotTo(HaveOccurred())
-			DeferCleanup(func() { _ = k8sClient.Delete(ctx, resource) })
+			DeferCleanup(func() { deleteResource(ctx, k8sClient, resource) })
 
 			By("waiting for the mirror sync available status")
 			Eventually(func(g Gomega) {
@@ -1589,7 +1589,7 @@ var _ = Describe("Registry Controller", func() {
 				return nil
 			})
 			Expect(err).NotTo(HaveOccurred())
-			DeferCleanup(func() { _ = k8sClient.Delete(ctx, resource) })
+			DeferCleanup(func() { deleteResource(ctx, k8sClient, resource) })
 
 			By("checking the registry becomes available")
 			Eventually(func(g Gomega) {
