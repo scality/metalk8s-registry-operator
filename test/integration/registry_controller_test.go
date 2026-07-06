@@ -18,6 +18,8 @@ package integration
 
 import (
 	"context"
+	"fmt"
+	"hash/fnv"
 	"os"
 	"strings"
 	"time"
@@ -38,7 +40,17 @@ import (
 	"k8s.io/utils/ptr"
 
 	metalk8sv1alpha1 "github.com/scality/metalk8s-registry-operator/api/v1alpha1"
+	controller "github.com/scality/metalk8s-registry-operator/internal/controller"
 )
+
+// mtlsCAHash mirrors the operator's getHash32Name helper (an FNV-32a hash
+// rendered as a zero-padded hex string) so the test can independently compute
+// the expected mTLS CA hash from the CA secret contents.
+func mtlsCAHash(data []byte) string {
+	hasher := fnv.New32a()
+	_, _ = hasher.Write(data)
+	return fmt.Sprintf("%08x", hasher.Sum32())
+}
 
 // nolint:dupl
 var _ = Describe("Registry Controller", func() {
@@ -1636,6 +1648,231 @@ var _ = Describe("Registry Controller", func() {
 					}
 				}
 			}
+		})
+	})
+
+	Context("When reconciling a registry using an mTLS CA secret", func() {
+		It("adds the mTLS CA hash as an annotation on the node agent pod template", func() {
+			resourceName := "test-mtls-ca-hash"
+			namespace := "test-mtls-ca-hash"
+
+			By("creating a node matching the registry selector")
+			node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{
+				Name:   "mtls-hash-node",
+				Labels: map[string]string{"registry": "mtls-ca-hash"},
+			}}
+			Expect(k8sClient.Create(ctx, node)).To(Succeed())
+			DeferCleanup(func() { _ = k8sClient.Delete(ctx, node) })
+
+			By("creating the Registry")
+			resource := &metalk8sv1alpha1.Registry{ObjectMeta: metav1.ObjectMeta{Name: resourceName}}
+			_, err := controllerutil.CreateOrUpdate(ctx, k8sClient, resource, func() error {
+				resource.Spec = metalk8sv1alpha1.RegistrySpec{
+					LogLevel:      ptr.To("info"),
+					ArchivesPath:  ptr.To("/srv/scality/metalk8s/archives"),
+					SolutionsPath: ptr.To("/srv/scality/metalk8s/solutions"),
+					Namespace:     ptr.To(namespace),
+					NodeSelector:  map[string]string{"registry": "mtls-ca-hash"},
+					Server: metalk8sv1alpha1.RegistryServerSpec{
+						CertificateIssuerRef: cmmetav1.ObjectReference{
+							Name: "registry-server-issuer",
+							Kind: "ClusterIssuer",
+						},
+					},
+					Agent: metalk8sv1alpha1.RegistryNodeAgentSpec{
+						Authentication: metalk8sv1alpha1.AuthenticationSpec{
+							MTLS: metalk8sv1alpha1.MTLSAuthenticationSpec{
+								CASecretRef: corev1.SecretReference{
+									Name:      "registry-agent-mtls-ca",
+									Namespace: secretNamespace,
+								},
+							},
+						},
+					},
+				}
+				return nil
+			})
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(func() { deleteResource(ctx, k8sClient, resource) })
+
+			By("waiting for the registry to become available")
+			Eventually(func(g Gomega) {
+				updated := &metalk8sv1alpha1.Registry{}
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: resourceName}, updated)).To(Succeed())
+				g.Expect(updated.Status.SelectedNodes).To(ConsistOf("mtls-hash-node"))
+			}, timeout, interval).Should(Succeed())
+
+			expectedHash := mtlsCAHash([]byte("dummy-ca-cert"))
+
+			By("checking the node agent StatefulSet pod template carries the mTLS CA hash annotation")
+			rnaSts := &appsv1.StatefulSet{}
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{
+					Name:      "metalk8s-registry-node-agent-mtls-hash-node",
+					Namespace: namespace,
+				}, rnaSts)).To(Succeed())
+				g.Expect(rnaSts.Spec.Template.Annotations).To(
+					HaveKeyWithValue(controller.MTLS_CA_HASH_ANNOTATION_KEY, expectedHash),
+				)
+			}, timeout, interval).Should(Succeed())
+
+			By("checking the copied external client CA secret shares the same hash annotation")
+			externalClientCASecret := &corev1.Secret{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{
+				Name:      "rna-external-client",
+				Namespace: namespace,
+			}, externalClientCASecret)).To(Succeed())
+			Expect(externalClientCASecret.Annotations).To(
+				HaveKeyWithValue(controller.MTLS_CA_HASH_ANNOTATION_KEY, expectedHash),
+			)
+
+			By("updating the mTLS CA secret and checking the annotation hash changes")
+			caSecret := &corev1.Secret{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{
+				Name:      "registry-agent-mtls-ca",
+				Namespace: secretNamespace,
+			}, caSecret)).To(Succeed())
+			caSecret.Data["ca.crt"] = []byte("rotated-ca-cert")
+			Expect(k8sClient.Update(ctx, caSecret)).To(Succeed())
+
+			rotatedHash := mtlsCAHash([]byte("rotated-ca-cert"))
+			Expect(rotatedHash).NotTo(Equal(expectedHash))
+
+			By("checking the node agent StatefulSet picks up the rotated CA hash")
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{
+					Name:      "metalk8s-registry-node-agent-mtls-hash-node",
+					Namespace: namespace,
+				}, rnaSts)).To(Succeed())
+				g.Expect(rnaSts.Spec.Template.Annotations).To(
+					HaveKeyWithValue(controller.MTLS_CA_HASH_ANNOTATION_KEY, rotatedHash),
+				)
+			}, timeout, interval).Should(Succeed())
+		})
+	})
+
+	Context("When a registry changes its mTLS CASecretRef", func() {
+		It("follows rotations of the new CA secret and ignores the previous one", func() {
+			resourceName := "test-mtls-ca-change"
+			namespace := "test-mtls-ca-change"
+
+			By("creating a second CA secret the registry will switch to")
+			newCASecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: "registry-agent-mtls-ca-new", Namespace: secretNamespace},
+				Data:       map[string][]byte{"ca.crt": []byte("new-ca-cert")},
+			}
+			Expect(k8sClient.Create(ctx, newCASecret)).To(Succeed())
+			DeferCleanup(func() { _ = k8sClient.Delete(ctx, newCASecret) })
+
+			By("creating a node matching the registry selector")
+			node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{
+				Name:   "mtls-ca-change-node",
+				Labels: map[string]string{"registry": "mtls-ca-change"},
+			}}
+			Expect(k8sClient.Create(ctx, node)).To(Succeed())
+			DeferCleanup(func() { _ = k8sClient.Delete(ctx, node) })
+
+			By("creating the Registry referencing the original CA secret")
+			resource := &metalk8sv1alpha1.Registry{ObjectMeta: metav1.ObjectMeta{Name: resourceName}}
+			mutate := func(caSecretName string) func() error {
+				return func() error {
+					resource.Spec = metalk8sv1alpha1.RegistrySpec{
+						LogLevel:      ptr.To("info"),
+						ArchivesPath:  ptr.To("/srv/scality/metalk8s/archives"),
+						SolutionsPath: ptr.To("/srv/scality/metalk8s/solutions"),
+						Namespace:     ptr.To(namespace),
+						NodeSelector:  map[string]string{"registry": "mtls-ca-change"},
+						Server: metalk8sv1alpha1.RegistryServerSpec{
+							CertificateIssuerRef: cmmetav1.ObjectReference{
+								Name: "registry-server-issuer",
+								Kind: "ClusterIssuer",
+							},
+						},
+						Agent: metalk8sv1alpha1.RegistryNodeAgentSpec{
+							Authentication: metalk8sv1alpha1.AuthenticationSpec{
+								MTLS: metalk8sv1alpha1.MTLSAuthenticationSpec{
+									CASecretRef: corev1.SecretReference{
+										Name:      caSecretName,
+										Namespace: secretNamespace,
+									},
+								},
+							},
+						},
+					}
+					return nil
+				}
+			}
+			_, err := controllerutil.CreateOrUpdate(ctx, k8sClient, resource, mutate("registry-agent-mtls-ca"))
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(func() { deleteResource(ctx, k8sClient, resource) })
+
+			By("waiting for the registry to become available on the original CA hash")
+			stsName := types.NamespacedName{
+				Name:      "metalk8s-registry-node-agent-mtls-ca-change-node",
+				Namespace: namespace,
+			}
+			rnaSts := &appsv1.StatefulSet{}
+			originalHash := mtlsCAHash([]byte("dummy-ca-cert"))
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, stsName, rnaSts)).To(Succeed())
+				g.Expect(rnaSts.Spec.Template.Annotations).To(
+					HaveKeyWithValue(controller.MTLS_CA_HASH_ANNOTATION_KEY, originalHash),
+				)
+			}, timeout, interval).Should(Succeed())
+
+			By("switching the registry's CASecretRef to the new CA secret")
+			_, err = controllerutil.CreateOrUpdate(ctx, k8sClient, resource, mutate("registry-agent-mtls-ca-new"))
+			Expect(err).NotTo(HaveOccurred())
+
+			newHash := mtlsCAHash([]byte("new-ca-cert"))
+			Expect(newHash).NotTo(Equal(originalHash))
+
+			By("checking the node agent StatefulSet picks up the new CA secret's hash")
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, stsName, rnaSts)).To(Succeed())
+				g.Expect(rnaSts.Spec.Template.Annotations).To(
+					HaveKeyWithValue(controller.MTLS_CA_HASH_ANNOTATION_KEY, newHash),
+				)
+			}, timeout, interval).Should(Succeed())
+
+			By("rotating the new CA secret and checking the registry follows it")
+			Expect(k8sClient.Get(ctx, types.NamespacedName{
+				Name:      "registry-agent-mtls-ca-new",
+				Namespace: secretNamespace,
+			}, newCASecret)).To(Succeed())
+			newCASecret.Data["ca.crt"] = []byte("new-ca-cert-rotated")
+			Expect(k8sClient.Update(ctx, newCASecret)).To(Succeed())
+
+			rotatedNewHash := mtlsCAHash([]byte("new-ca-cert-rotated"))
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, stsName, rnaSts)).To(Succeed())
+				g.Expect(rnaSts.Spec.Template.Annotations).To(
+					HaveKeyWithValue(controller.MTLS_CA_HASH_ANNOTATION_KEY, rotatedNewHash),
+				)
+			}, timeout, interval).Should(Succeed())
+
+			By("rotating the original CA secret and checking the registry stays on the new one")
+			originalCASecret := &corev1.Secret{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{
+				Name:      "registry-agent-mtls-ca",
+				Namespace: secretNamespace,
+			}, originalCASecret)).To(Succeed())
+			originalCASecret.Data["ca.crt"] = []byte("dummy-ca-cert-rotated")
+			Expect(k8sClient.Update(ctx, originalCASecret)).To(Succeed())
+
+			// The registry no longer references the original CA secret, so its
+			// StatefulSet must remain on the new CA hash and never adopt the
+			// original secret's rotated hash.
+			staleHash := mtlsCAHash([]byte("dummy-ca-cert-rotated"))
+			Consistently(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, stsName, rnaSts)).To(Succeed())
+				g.Expect(rnaSts.Spec.Template.Annotations).To(
+					HaveKeyWithValue(controller.MTLS_CA_HASH_ANNOTATION_KEY, rotatedNewHash),
+				)
+				g.Expect(rnaSts.Spec.Template.Annotations).NotTo(
+					HaveKeyWithValue(controller.MTLS_CA_HASH_ANNOTATION_KEY, staleHash),
+				)
+			}, 3*time.Second, interval).Should(Succeed())
 		})
 	})
 })
