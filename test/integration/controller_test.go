@@ -14,13 +14,14 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package k8s
+package integration
 
 import (
 	"context"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -30,6 +31,8 @@ import (
 	metalk8sv1alpha1 "github.com/scality/metalk8s-registry-operator/api/v1alpha1"
 	controller "github.com/scality/metalk8s-registry-operator/internal/controller"
 	"github.com/scality/metalk8s-registry-operator/internal/utils"
+	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -183,4 +186,21 @@ func getFirstFoundEnvTestBinaryDir() string {
 		}
 	}
 	return ""
+}
+
+func deleteResource(ctx context.Context, k8sClient client.Client, resource client.Object) {
+	timeout := 10 * time.Second
+	interval := 1 * time.Second
+	Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
+	Eventually(func(g Gomega) {
+		err := k8sClient.Get(
+			ctx,
+			types.NamespacedName{
+				Name:      resource.GetName(),
+				Namespace: resource.GetNamespace(),
+			},
+			resource,
+		)
+		g.Expect(errors.IsNotFound(err)).To(BeTrue())
+	}, timeout, interval).Should(Succeed())
 }
