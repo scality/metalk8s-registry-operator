@@ -20,10 +20,8 @@ import (
 	"context"
 	"fmt"
 
-	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	metalk8sv1alpha1 "github.com/scality/metalk8s-registry-operator/api/v1alpha1"
@@ -35,7 +33,7 @@ var mirrorconfiglog = logf.Log.WithName("mirrorconfig-resource")
 
 // SetupMirrorConfigWebhookWithManager registers the webhook for MirrorConfig in the manager.
 func SetupMirrorConfigWebhookWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewWebhookManagedBy(mgr).For(&metalk8sv1alpha1.MirrorConfig{}).
+	return ctrl.NewWebhookManagedBy(mgr, &metalk8sv1alpha1.MirrorConfig{}).
 		WithValidator(&MirrorConfigCustomValidator{}).
 		Complete()
 }
@@ -54,35 +52,32 @@ type MirrorConfigCustomValidator struct {
 	// TODO(user): Add more fields as needed for validation
 }
 
-var _ webhook.CustomValidator = &MirrorConfigCustomValidator{}
+var _ admission.Validator[*metalk8sv1alpha1.MirrorConfig] = &MirrorConfigCustomValidator{}
 
-// ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type MirrorConfig.
-func (v *MirrorConfigCustomValidator) ValidateCreate(_ context.Context, obj runtime.Object) (admission.Warnings, error) {
-	mirrorconfig, ok := obj.(*metalk8sv1alpha1.MirrorConfig)
-	if !ok {
-		return nil, fmt.Errorf("expected a MirrorConfig object but got %T", obj)
+// ValidateCreate implements admission.Validator so a webhook will be registered for the type MirrorConfig.
+func (v *MirrorConfigCustomValidator) ValidateCreate(_ context.Context, mirrorconfig *metalk8sv1alpha1.MirrorConfig) (admission.Warnings, error) {
+	if mirrorconfig == nil {
+		return nil, fmt.Errorf("expected a MirrorConfig object but got nil")
 	}
 	mirrorconfiglog.Info("Validation for MirrorConfig upon creation", "name", mirrorconfig.GetName())
 
 	return nil, validateMirrorConfig(mirrorconfig)
 }
 
-// ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type MirrorConfig.
-func (v *MirrorConfigCustomValidator) ValidateUpdate(_ context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
-	mirrorconfig, ok := newObj.(*metalk8sv1alpha1.MirrorConfig)
-	if !ok {
-		return nil, fmt.Errorf("expected a MirrorConfig object for the newObj but got %T", newObj)
+// ValidateUpdate implements admission.Validator so a webhook will be registered for the type MirrorConfig.
+func (v *MirrorConfigCustomValidator) ValidateUpdate(_ context.Context, _, mirrorconfig *metalk8sv1alpha1.MirrorConfig) (admission.Warnings, error) {
+	if mirrorconfig == nil {
+		return nil, fmt.Errorf("expected a MirrorConfig object but got nil")
 	}
 	mirrorconfiglog.Info("Validation for MirrorConfig upon update", "name", mirrorconfig.GetName())
 
 	return nil, validateMirrorConfig(mirrorconfig)
 }
 
-// ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type MirrorConfig.
-func (v *MirrorConfigCustomValidator) ValidateDelete(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
-	mirrorconfig, ok := obj.(*metalk8sv1alpha1.MirrorConfig)
-	if !ok {
-		return nil, fmt.Errorf("expected a MirrorConfig object but got %T", obj)
+// ValidateDelete implements admission.Validator so a webhook will be registered for the type MirrorConfig.
+func (v *MirrorConfigCustomValidator) ValidateDelete(_ context.Context, mirrorconfig *metalk8sv1alpha1.MirrorConfig) (admission.Warnings, error) {
+	if mirrorconfig == nil {
+		return nil, fmt.Errorf("expected a MirrorConfig object but got nil")
 	}
 	mirrorconfiglog.Info("Validation for MirrorConfig upon deletion", "name", mirrorconfig.GetName())
 
