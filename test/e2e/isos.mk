@@ -18,6 +18,13 @@
 
 ##@ E2E fixtures
 
+# Shared configuration with test/e2e/helpers/fixtures.go — defines
+# E2E_IMAGE_HOST, BULK_SMALL_INDICES, BULK_BIG_INDICES so the ISO build and
+# the Go test suite stay in lockstep. Exported so `go test`, invoked via
+# `make test-e2e`, sees them through os.Getenv.
+include test/e2e/fixtures.env
+export E2E_IMAGE_HOST BULK_SMALL_INDICES BULK_BIG_INDICES
+
 DIST_ISOS ?= dist/test-isos
 # Payload size (in whole MiB) for the images inside the "small" ISOs. Keep
 # it small to make dev loops fast.
@@ -26,18 +33,9 @@ SMALL_ISO_SIZE_MB ?= 1
 # Overridable at the CLI: make test-e2e-isos BIG_ISO_SIZE_MB=200
 BIG_ISO_SIZE_MB ?= 100
 
-# Registry hostname baked into the ISO image paths. The tests pull images as
-# `$(E2E_IMAGE_HOST)/<repo>:<tag>`; containerd forwards these through the
-# `_default` mirror (with `?ns=$(E2E_IMAGE_HOST)`) to the registry-server.
-# Any hostname is fine as long as it (a) contains a dot so containerd treats
-# it as a registry and (b) matches what the tests use in their pull refs.
-E2E_IMAGE_HOST ?= e2e.metalk8s.scality.com
-
 # Bulk fixtures for the "10 small + 2 big archives" step. Each index yields
 # an ISO named `bulk-<kind>-<index>.iso` containing exactly one image at
 # `$(E2E_IMAGE_HOST)/bulk-<kind>-<index>:v1`.
-BULK_SMALL_INDICES := 01 02 03 04 05 06 07 08 09 10
-BULK_BIG_INDICES := 01 02
 BULK_SMALL_ISOS := $(patsubst %,$(DIST_ISOS)/bulk-small-%.iso,$(BULK_SMALL_INDICES))
 BULK_BIG_ISOS := $(patsubst %,$(DIST_ISOS)/bulk-big-%.iso,$(BULK_BIG_INDICES))
 
