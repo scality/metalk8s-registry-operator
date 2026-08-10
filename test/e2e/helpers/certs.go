@@ -98,6 +98,11 @@ func EnsureCA(ctx context.Context, c client.Client) (caCertPEM, caKeyPEM []byte,
 		}
 		if p, k, ok := extractCA(existing); ok {
 			certPEM, keyPEM = p, k
+		} else {
+			return nil, nil, fmt.Errorf(
+				"existing CA Secret %s/%s has invalid or missing cert/key data",
+				RegistryNamespace, CASecretName,
+			)
 		}
 	}
 	if err := ensureIssuer(ctx, c); err != nil {

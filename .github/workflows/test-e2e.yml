@@ -40,10 +40,12 @@ jobs:
 
       - name: Build the installer
         id: build-installer
+        env:
+          IMG: ${{ inputs.image_with_tag }}
         run: |
           go mod tidy
-          make build-installer IMG="${{ inputs.image_with_tag }}"
-          echo "installer=$(realpath ./dist/install.yaml)" >> $GITHUB_OUTPUT
+          make build-installer IMG="$IMG"
+          echo "installer=$(realpath ./dist/install.yaml)" >> "$GITHUB_OUTPUT"
 
       - name: deploy the Registry operator
         uses: ./.github/actions/deploy
