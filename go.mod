@@ -8,7 +8,7 @@ require (
 	github.com/hashicorp/go-version v1.9.0
 	github.com/onsi/ginkgo/v2 v2.29.0
 	github.com/onsi/gomega v1.41.0
-	github.com/scality/metalk8s-registry-node-agent v0.0.1-alpha.10
+	github.com/scality/metalk8s-registry-node-agent v0.0.1-alpha.11
 	go.uber.org/zap v1.27.0
 	k8s.io/api v0.34.1
 	k8s.io/apiextensions-apiserver v0.34.1
