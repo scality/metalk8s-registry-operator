@@ -7,6 +7,11 @@ on:
         type: string
         description: "full reference (image:tag) of the registry operator image to deploy"
         required: true
+      full_suite:
+        type: boolean
+        description: "when true, do not skip long-running Describes (e.g. big archive extension). Defaults to the Makefile's E2E_GINKGO_SKIP, which skips them."
+        required: false
+        default: false
 
 permissions:
   id-token: write
@@ -54,6 +59,13 @@ jobs:
             pull_secret: ${{ secrets.GIT_ACCESS_TOKEN }}
 
       - name: Running Test e2e
+        if: ${{ !inputs.full_suite }}
+        run: make test-e2e
+
+      - name: Running Test e2e (full suite)
+        if: ${{ inputs.full_suite }}
+        env:
+          E2E_GINKGO_SKIP: ""
         run: make test-e2e
 
       - name: Debug hold (runner.debug only)

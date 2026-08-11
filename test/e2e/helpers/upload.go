@@ -171,7 +171,7 @@ func putChunk(ctx context.Context, httpClient *http.Client, endpoint, contentRan
 		}
 		body, _ := io.ReadAll(resp.Body)
 		_ = resp.Body.Close()
-		if resp.StatusCode == http.StatusOK {
+		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 			return nil
 		}
 		lastErr = fmt.Errorf("http %d: %s", resp.StatusCode, string(body))

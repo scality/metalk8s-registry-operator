@@ -138,26 +138,6 @@ func SummarizeArchive(sa *metalk8sv1alpha1.SolutionArchive) ArchiveStatusSummary
 	}
 }
 
-// GetNodeArchives fetches every NodeSolutionArchive belonging to a
-// SolutionArchive. Wrapping the node-agent CRD list keeps the tests from
-// needing to import the node-agent's typed API.
-func GetNodeArchives(
-	ctx context.Context, c client.Client, saName, version string,
-) (*rnav1alpha1.NodeSolutionArchiveList, error) {
-	list := &rnav1alpha1.NodeSolutionArchiveList{}
-	if err := c.List(ctx, list); err != nil {
-		return nil, err
-	}
-	filtered := list.Items[:0]
-	for _, nsa := range list.Items {
-		if nsa.Spec.Name == saName && nsa.Spec.Version == version {
-			filtered = append(filtered, nsa)
-		}
-	}
-	list.Items = filtered
-	return list, nil
-}
-
 // ForceCleanupNodeArchives strips the metalk8s finalizer from every
 // NodeSolutionArchive matching the given name prefix. It is a last-resort
 // escape hatch for the e2e cleanup path: NSAs are normally deleted when

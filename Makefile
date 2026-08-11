@@ -113,12 +113,20 @@ test: manifests generate fmt vet setup-envtest download-manifests ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out
 
 .PHONY: test-e2e
+# Ginkgo -ginkgo.skip regexp applied to `make test-e2e`. Defaults to the
+# "Big archive across registry extensions" Describe: its coverage is
+# subsumed by the archive-replication Describe and it roughly doubles the
+# suite runtime, so it's skipped for pre-merge. Clear it to run the full
+# suite: `make test-e2e E2E_GINKGO_SKIP=`.
+E2E_GINKGO_SKIP ?= Big archive across registry extensions
+
 test-e2e: test-e2e-isos ## Run the e2e suite against the cluster pointed to by $$KUBECONFIG.
 	# Ginkgo's per-spec timeout defaults to Duration(0) (unlimited); go test itself
 	# defaults to 10 minutes for the whole binary. Bump both so that the full
 	# Registry lifecycle suite has room to run without a scattergun `-timeout`
 	# on every single Eventually.
-	go test ./test/e2e/... -v -ginkgo.v -timeout 3h -ginkgo.timeout=2h30m
+	go test ./test/e2e/... -v -ginkgo.v -timeout 3h -ginkgo.timeout=2h30m \
+		$(if $(E2E_GINKGO_SKIP),-ginkgo.skip='$(E2E_GINKGO_SKIP)')
 
 # E2E ISO fixtures: keep the recipe list out of this Makefile — it's
 # self-contained and only relevant when the e2e suite is being run.
