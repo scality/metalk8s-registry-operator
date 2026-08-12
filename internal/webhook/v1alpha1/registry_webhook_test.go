@@ -128,19 +128,6 @@ var _ = Describe("Registry Webhook", func() {
 		Expect(k8sClient.Delete(ctx, agentIssuer)).To(Succeed())
 	})
 
-	Context("When Default is called with a wrong object type", func() {
-		It("Should return an error when obj is not a Registry", func() {
-			By("calling Default with a non-Registry runtime.Object")
-			wrongObj := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "not-a-registry"}}
-			err := defaulter.Default(ctx, wrongObj)
-
-			By("checking that an error is returned")
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("expected an Registry object but got"))
-			Expect(err.Error()).To(ContainSubstring("*v1.Pod"))
-		})
-	})
-
 	Context("When creating Registry under Defaulting Webhook", func() {
 		It("Should apply defaults when Spec.Namespace field is missing", func() {
 			By("simulating a scenario where defaults should be applied")
@@ -266,19 +253,6 @@ var _ = Describe("Registry Webhook", func() {
 
 			By("checking that the default values are set")
 			Expect(obj.Spec.SolutionsPath).To(Equal(ptr.To("/path/to/solutions")))
-		})
-	})
-
-	Context("When ValidateCreate is called with a wrong object type", func() {
-		It("Should return an error when obj is not a Registry", func() {
-			By("calling ValidateCreate with a non-Registry runtime.Object")
-			wrongObj := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "not-a-registry"}}
-			_, err := validator.ValidateCreate(ctx, wrongObj)
-
-			By("checking that an error is returned")
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("expected a Registry object but got"))
-			Expect(err.Error()).To(ContainSubstring("*v1.Pod"))
 		})
 	})
 

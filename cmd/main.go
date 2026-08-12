@@ -248,7 +248,7 @@ func main() {
 	// Load CustomResourceDefinitions from registryNodeAgent
 	for _, crd := range registryNodeAgent.CustomResourceDefinitions {
 		setupLog.Info("Loading CustomResourceDefinition", "name", crd.Name)
-		err = mgr.GetClient().Patch(ctx, crd, client.Apply, client.ForceOwnership, client.FieldOwner("registry-operator"))
+		err = mgr.GetClient().Patch(ctx, crd, utils.ApplyPatch, client.ForceOwnership, client.FieldOwner("registry-operator"))
 		if err != nil {
 			setupLog.Error(err, "failed to patch CustomResourceDefinition", "name", crd.Name)
 			os.Exit(1)

@@ -22,13 +22,11 @@ import (
 
 	cmv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	metalk8sv1alpha1 "github.com/scality/metalk8s-registry-operator/api/v1alpha1"
@@ -45,7 +43,7 @@ var registrylog = logf.Log.WithName("registry-resource")
 
 // SetupRegistryWebhookWithManager registers the webhook for Registry in the manager.
 func SetupRegistryWebhookWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewWebhookManagedBy(mgr).For(&metalk8sv1alpha1.Registry{}).
+	return ctrl.NewWebhookManagedBy(mgr, &metalk8sv1alpha1.Registry{}).
 		WithValidator(&RegistryCustomValidator{
 			client: mgr.GetClient(),
 		}).
@@ -63,14 +61,12 @@ func SetupRegistryWebhookWithManager(mgr ctrl.Manager) error {
 type RegistryCustomDefaulter struct {
 }
 
-var _ webhook.CustomDefaulter = &RegistryCustomDefaulter{}
+var _ admission.Defaulter[*metalk8sv1alpha1.Registry] = &RegistryCustomDefaulter{}
 
-// Default implements webhook.CustomDefaulter so a webhook will be registered for the Kind Registry.
-func (d *RegistryCustomDefaulter) Default(_ context.Context, obj runtime.Object) error {
-	registry, ok := obj.(*metalk8sv1alpha1.Registry)
-
-	if !ok {
-		return fmt.Errorf("expected an Registry object but got %T", obj)
+// Default implements admission.Defaulter so a webhook will be registered for the Kind Registry.
+func (d *RegistryCustomDefaulter) Default(_ context.Context, registry *metalk8sv1alpha1.Registry) error {
+	if registry == nil {
+		return fmt.Errorf("expected a Registry object but got nil")
 	}
 	registrylog.Info("Defaulting for Registry", "name", registry.GetName())
 
@@ -96,32 +92,30 @@ type RegistryCustomValidator struct {
 	client client.Client
 }
 
-var _ webhook.CustomValidator = &RegistryCustomValidator{}
+var _ admission.Validator[*metalk8sv1alpha1.Registry] = &RegistryCustomValidator{}
 
-// ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type Registry.
-func (v *RegistryCustomValidator) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
-	registry, ok := obj.(*metalk8sv1alpha1.Registry)
-	if !ok {
-		return nil, fmt.Errorf("expected a Registry object but got %T", obj)
+// ValidateCreate implements admission.Validator so a webhook will be registered for the type Registry.
+func (v *RegistryCustomValidator) ValidateCreate(ctx context.Context, registry *metalk8sv1alpha1.Registry) (admission.Warnings, error) {
+	if registry == nil {
+		return nil, fmt.Errorf("expected a Registry object but got nil")
 	}
 	registrylog.Info("Validation for Registry upon creation", "name", registry.GetName())
 
 	return nil, validateRegistry(ctx, v.client, registry, false)
 }
 
-// ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type Registry.
-func (v *RegistryCustomValidator) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
-	registry, ok := newObj.(*metalk8sv1alpha1.Registry)
-	if !ok {
-		return nil, fmt.Errorf("expected a Registry object but got %T", newObj)
+// ValidateUpdate implements admission.Validator so a webhook will be registered for the type Registry.
+func (v *RegistryCustomValidator) ValidateUpdate(ctx context.Context, _, registry *metalk8sv1alpha1.Registry) (admission.Warnings, error) {
+	if registry == nil {
+		return nil, fmt.Errorf("expected a Registry object but got nil")
 	}
 	registrylog.Info("Validation for Registry upon update", "name", registry.GetName())
 
 	return nil, validateRegistry(ctx, v.client, registry, true)
 }
 
-// ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type Registry.
-func (v *RegistryCustomValidator) ValidateDelete(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
+// ValidateDelete implements admission.Validator so a webhook will be registered for the type Registry.
+func (v *RegistryCustomValidator) ValidateDelete(_ context.Context, _ *metalk8sv1alpha1.Registry) (admission.Warnings, error) {
 	// Careful: not activated by default
 	// To enable it think about changing "verbs=create" to "verbs=create,delete" in "+kubebuilder:webhook" annotation above
 	return nil, nil

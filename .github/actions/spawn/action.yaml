@@ -1,0 +1,74 @@
+name: 'Spawn a Kubernetes Cluster'
+description: 'Uses Pulumi and Kubeadm to bootstrap a platform'
+inputs:
+  # AWS credentials
+  aws_account_id:
+    description: "The AWS account ID for OIDC"
+    required: true
+
+  # Artifacts credentials
+  artifacts_user:
+    description: "The artifacts user (only for spawn action)"
+    required: false
+    default: ""
+  artifacts_password:
+    description: "The artifacts password (only for spawn action)"
+    required: false
+    default: ""
+
+runs:
+  using: "composite"
+  steps:
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: arn:aws:iam::${{ inputs.aws_account_id }}:role/scality-github-e2e-infrastructure
+        role-session-name: GitHubActions-${{ github.run_id }}
+        aws-region: eu-north-1
+
+    - name: Spawn the cluster
+      uses: scality/platform-spawner@v2.0.0
+      with:
+          artifacts_user: ${{ inputs.artifacts_user }}
+          artifacts_password: ${{ inputs.artifacts_password }}
+          stack_name: "${{ github.workflow }}-${{ github.run_number }}"
+          store_to_s3: true
+          configuration: |-
+            product: registry-test
+            ssh_private_key_create: "true"
+            instance_image: rocky-9
+            instance_count: 5
+
+    - name: Ensure deployed nodes are reachable
+      shell: bash
+      env:
+        MAX_ATTEMPTS: "10"
+        SLEEP_INTERVAL: "5"
+        NODE_COUNT: "5"
+      run: |-
+        nodes=("bastion")
+        for i in $(seq 1 "$NODE_COUNT"); do
+          nodes+=("node-$i")
+        done
+        for node in "${nodes[@]}"; do
+          echo "Waiting for $node to be reachable..."
+          for i in $(seq "$MAX_ATTEMPTS"); do
+            if ssh -F ssh_config "$node" hostname; then
+              echo "$node is reachable"
+              break
+            fi
+            if [ "$i" -eq "$MAX_ATTEMPTS" ]; then
+              echo "$node is not reachable"
+              exit 1
+            fi
+            echo "$node is not reachable yet..."
+            sleep "$SLEEP_INTERVAL"
+          done
+        done
+
+    - name: Prepare the cluster with kubeadm
+      shell: bash
+      env:
+        NODE_COUNT: "5"
+        KUBE_VERSION: "v1.34.9"
+      run: ./.github/scripts/prepare-cluster.sh

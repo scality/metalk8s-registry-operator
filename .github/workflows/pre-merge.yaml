@@ -55,5 +55,11 @@ jobs:
     secrets: inherit
 
   test-e2e:
+    needs: build
+    permissions:
+      id-token: write
+      contents: read
     uses: ./.github/workflows/test-e2e.yml
     secrets: inherit
+    with:
+      image_with_tag: ${{ needs.build.outputs.image_tag }}

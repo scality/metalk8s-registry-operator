@@ -107,7 +107,7 @@ func (r *RegistryReconciler) ReconcileRNAGenericResources(ctx context.Context, r
 	var err error
 
 	for _, crd := range r.RNA.CustomResourceDefinitions {
-		err = r.Patch(ctx, crd, client.Apply, client.ForceOwnership, client.FieldOwner(SSA_FIELD_OWNER_NAME))
+		err = r.Patch(ctx, crd, utils.ApplyPatch, client.ForceOwnership, client.FieldOwner(SSA_FIELD_OWNER_NAME))
 		if err != nil {
 			log.V(1).Info("error patching CustomResourceDefinition", "name", crd.Name)
 			return err
@@ -119,7 +119,7 @@ func (r *RegistryReconciler) ReconcileRNAGenericResources(ctx context.Context, r
 
 	// If namespace has already been created, don't try to modify it
 	for _, ns := range r.RNA.Namespaces {
-		err = r.Patch(ctx, ns, client.Apply, client.ForceOwnership, client.FieldOwner(SSA_FIELD_OWNER_NAME))
+		err = r.Patch(ctx, ns, utils.ApplyPatch, client.ForceOwnership, client.FieldOwner(SSA_FIELD_OWNER_NAME))
 		if err != nil {
 			log.V(1).Info("error patching Namespace", "name", ns.Name)
 			return err
@@ -135,7 +135,7 @@ func (r *RegistryReconciler) ReconcileRNAGenericResources(ctx context.Context, r
 			log.V(1).Info("error setting controller reference for Certificate", "name", cert.Name)
 			return err
 		}
-		err = r.Patch(ctx, cert, client.Apply, client.ForceOwnership, client.FieldOwner(SSA_FIELD_OWNER_NAME))
+		err = r.Patch(ctx, cert, utils.ApplyPatch, client.ForceOwnership, client.FieldOwner(SSA_FIELD_OWNER_NAME))
 		if err != nil {
 			log.V(1).Info("error patching Certificate", "name", cert.Name)
 			return err
@@ -150,7 +150,7 @@ func (r *RegistryReconciler) ReconcileRNAGenericResources(ctx context.Context, r
 			log.V(1).Info("error setting controller reference for ValidatingWebhookConfiguration", "name", vwc.Name)
 			return err
 		}
-		err = r.Patch(ctx, vwc, client.Apply, client.ForceOwnership, client.FieldOwner(SSA_FIELD_OWNER_NAME))
+		err = r.Patch(ctx, vwc, utils.ApplyPatch, client.ForceOwnership, client.FieldOwner(SSA_FIELD_OWNER_NAME))
 		if err != nil {
 			log.V(1).Info("error patching ValidatingWebhookConfiguration", "name", vwc.Name)
 			return err
@@ -166,7 +166,7 @@ func (r *RegistryReconciler) ReconcileRNAGenericResources(ctx context.Context, r
 			log.V(1).Info("error setting controller reference for Role", "name", role.Name)
 			return err
 		}
-		err = r.Patch(ctx, role, client.Apply, client.ForceOwnership, client.FieldOwner(SSA_FIELD_OWNER_NAME))
+		err = r.Patch(ctx, role, utils.ApplyPatch, client.ForceOwnership, client.FieldOwner(SSA_FIELD_OWNER_NAME))
 		if err != nil {
 			log.V(1).Info("error patching Role", "name", role.Name)
 			return err
@@ -181,7 +181,7 @@ func (r *RegistryReconciler) ReconcileRNAGenericResources(ctx context.Context, r
 			log.V(1).Info("error setting controller reference for ClusterRole", "name", clusterRole.Name)
 			return err
 		}
-		err = r.Patch(ctx, clusterRole, client.Apply, client.ForceOwnership, client.FieldOwner(SSA_FIELD_OWNER_NAME))
+		err = r.Patch(ctx, clusterRole, utils.ApplyPatch, client.ForceOwnership, client.FieldOwner(SSA_FIELD_OWNER_NAME))
 		if err != nil {
 			log.V(1).Info("error patching ClusterRole", "name", clusterRole.Name)
 			return err
@@ -197,7 +197,7 @@ func (r *RegistryReconciler) ReconcileRNAGenericResources(ctx context.Context, r
 			log.V(1).Info("error setting controller reference for RoleBinding", "name", roleBinding.Name)
 			return err
 		}
-		err = r.Patch(ctx, roleBinding, client.Apply, client.ForceOwnership, client.FieldOwner(SSA_FIELD_OWNER_NAME))
+		err = r.Patch(ctx, roleBinding, utils.ApplyPatch, client.ForceOwnership, client.FieldOwner(SSA_FIELD_OWNER_NAME))
 		if err != nil {
 			log.V(1).Info("error patching RoleBinding", "name", roleBinding.Name)
 			return err
@@ -213,7 +213,7 @@ func (r *RegistryReconciler) ReconcileRNAGenericResources(ctx context.Context, r
 			log.V(1).Info("error setting controller reference for ClusterRoleBinding", "name", clusterRoleBinding.Name)
 			return err
 		}
-		err = r.Patch(ctx, clusterRoleBinding, client.Apply, client.ForceOwnership, client.FieldOwner(SSA_FIELD_OWNER_NAME))
+		err = r.Patch(ctx, clusterRoleBinding, utils.ApplyPatch, client.ForceOwnership, client.FieldOwner(SSA_FIELD_OWNER_NAME))
 		if err != nil {
 			log.V(1).Info("error patching ClusterRoleBinding", "name", clusterRoleBinding.Name)
 			return err
@@ -229,7 +229,7 @@ func (r *RegistryReconciler) ReconcileRNAGenericResources(ctx context.Context, r
 			log.V(1).Info("error setting controller reference for UnstructuredObject", "name", obj.GetName())
 			return err
 		}
-		err = r.Patch(ctx, obj, client.Apply, client.ForceOwnership, client.FieldOwner(SSA_FIELD_OWNER_NAME))
+		err = r.Patch(ctx, obj, utils.ApplyPatch, client.ForceOwnership, client.FieldOwner(SSA_FIELD_OWNER_NAME))
 		if err != nil {
 			log.V(1).Info("error patching UnstructuredObject", "name", obj.GetName())
 			return err
@@ -512,7 +512,7 @@ func (r *RegistryReconciler) ReconcileRNAStatefulSet(ctx context.Context, regist
 		}
 	}
 
-	return r.Patch(ctx, registryNodeAgentStatefulSet.sts, client.Apply, client.ForceOwnership, client.FieldOwner(SSA_FIELD_OWNER_NAME))
+	return r.Patch(ctx, registryNodeAgentStatefulSet.sts, utils.ApplyPatch, client.ForceOwnership, client.FieldOwner(SSA_FIELD_OWNER_NAME))
 }
 
 // ReconcileRNAService reconciles a Registry Node Agent service
@@ -837,7 +837,7 @@ func (r *RegistryReconciler) ReconcileRSStatefulSet(ctx context.Context, registr
 	// Set Environment Variables (LOGLEVEL, HTTP_ADDR)
 	registryServerStatefulSet.setRSEnvVariables(registry, nodeIP)
 
-	return r.Patch(ctx, registryServerStatefulSet.sts, client.Apply, client.ForceOwnership, client.FieldOwner(SSA_FIELD_OWNER_NAME))
+	return r.Patch(ctx, registryServerStatefulSet.sts, utils.ApplyPatch, client.ForceOwnership, client.FieldOwner(SSA_FIELD_OWNER_NAME))
 }
 
 // ReconcileRSExternalServerCertificate reconciles an external server certificate for the Registry Server

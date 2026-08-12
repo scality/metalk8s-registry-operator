@@ -28,10 +28,10 @@ import (
 const (
 	RegistryServerImageRegistry    = "ghcr.io/scality"
 	RegistryServerImageName        = "static-oci-registry"
-	RegistryServerImageTag         = "v0.1.0-beta.1"
+	RegistryServerImageTag         = "v0.1.0-beta.2"
 	RegistryNodeAgentImageRegistry = "ghcr.io/scality"
 	RegistryNodeAgentImageName     = "metalk8s-registry-node-agent"
-	RegistryNodeAgentImageTag      = "v0.0.1-alpha.10"
+	RegistryNodeAgentImageTag      = "v0.0.1-alpha.11"
 	FileReflectorImageRegistry     = "ghcr.io/scality"
 	FileReflectorImageName         = "file-reflector"
 	FileReflectorImageTag          = "v0.2.0"

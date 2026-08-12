@@ -2,11 +2,26 @@ name: E2E Tests
 
 on:
   workflow_call:
+    inputs:
+      image_with_tag:
+        type: string
+        description: "full reference (image:tag) of the registry operator image to deploy"
+        required: true
+      full_suite:
+        type: boolean
+        description: "when true, do not skip long-running Describes (e.g. big archive extension). Defaults to the Makefile's E2E_GINKGO_SKIP, which skips them."
+        required: false
+        default: false
+
+permissions:
+  id-token: write
+  actions: read
+  contents: read
 
 jobs:
   test-e2e:
     name: Run on Ubuntu
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Clone the code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -16,17 +31,60 @@ jobs:
         with:
           token: ${{ secrets.GIT_ACCESS_TOKEN }}
 
-      - name: Install the latest version of kind
+      - name: Install ISO build dependencies
         run: |
-          curl -Lo ./kind https://kind.sigs.k8s.io/dl/latest/kind-linux-amd64
-          chmod +x ./kind
-          sudo mv ./kind /usr/local/bin/kind
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends genisoimage skopeo
 
-      - name: Verify kind installation
-        run: kind version
+      - name: Deploy the kubernetes cluster
+        uses: ./.github/actions/spawn
+        with:
+            aws_account_id: ${{ vars.AWS_MAIN_ACCOUNT_ID }}
+            artifacts_user: ${{ secrets.ARTIFACTS_USER }}
+            artifacts_password: ${{ secrets.ARTIFACTS_PASSWORD }}
 
-      - name: Running Test e2e
+      - name: Build the installer
+        id: build-installer
+        env:
+          IMG: ${{ inputs.image_with_tag }}
         run: |
           go mod tidy
-          #TODO: uncomment when adding E2E tests
-          #make test-e2e
+          make build-installer IMG="$IMG"
+          echo "installer=$(realpath ./dist/install.yaml)" >> "$GITHUB_OUTPUT"
+
+      - name: deploy the Registry operator
+        uses: ./.github/actions/deploy
+        with:
+            manifest: ${{ steps.build-installer.outputs.installer }}
+            pull_secret: ${{ secrets.GIT_ACCESS_TOKEN }}
+
+      - name: Running Test e2e
+        if: ${{ !inputs.full_suite }}
+        run: make test-e2e
+
+      - name: Running Test e2e (full suite)
+        if: ${{ inputs.full_suite }}
+        env:
+          E2E_GINKGO_SKIP: ""
+        run: make test-e2e
+
+      - name: Debug hold (runner.debug only)
+        if: ${{ always() && runner.debug == '1' }}
+        run: |
+          echo "runner.debug is set; sleeping 1h so the cluster can be inspected."
+          echo "SSH through the bastion (see prepare-cluster.sh) and reuse ~/.kube/config."
+          sleep 3600
+
+  destroy:
+    needs:
+      - test-e2e
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Destroy platform
+        uses: ./.github/actions/destroy
+        with:
+          aws_account_id: ${{ vars.AWS_MAIN_ACCOUNT_ID }}
