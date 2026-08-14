@@ -59,6 +59,7 @@ const (
 	TLS_CLIENT_EXTERNAL_CERTS_NAME         = "tls-client-extern-certs"
 	RS_SERVICE_NAME                        = "metalk8s-registry-server"
 	RS_SERVER_PORT                         = 5000
+	MTLS_CA_HASH_ANNOTATION_KEY            = "registry.metalk8s.scality.com/mtls-ca-hash"
 )
 
 // getHash32Name returns a 32-bit hash of the input string - hexadecimal representation
@@ -304,7 +305,7 @@ func (r *RegistryReconciler) ReconcileRNACAIssuer(ctx context.Context, registryN
 
 // ReconcileRNAExternalClientCACertificate reconciles a namespaced copy of the CA certificate defined in the Registry (spec.agent.authentication.mtls.caSecretRef)
 // It is used to sign the mTLS Certificate used to upload ISO files
-func (r *RegistryReconciler) ReconcileRNAExternalClientCACertificate(ctx context.Context, registryNamespace string, registry *metalk8sv1alpha1.Registry) error {
+func (r *RegistryReconciler) ReconcileRNAExternalClientCACertificate(ctx context.Context, registryNamespace string, registry *metalk8sv1alpha1.Registry, mTLSCAsHash *string) error {
 	caSecretRef := &corev1.Secret{}
 	if err := r.Get(ctx, client.ObjectKey{
 		Name:      registry.Spec.Agent.Authentication.MTLS.CASecretRef.Name,
@@ -313,6 +314,8 @@ func (r *RegistryReconciler) ReconcileRNAExternalClientCACertificate(ctx context
 		return err
 	}
 
+	// Generate the hash of the mTLS CA certificate
+	*mTLSCAsHash = getHash32Name(string(caSecretRef.Data["ca.crt"]))
 	externalClientCASecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      RNA_EXTERNAL_CLIENT_CERTIFICATE_PREFIX,
@@ -325,6 +328,13 @@ func (r *RegistryReconciler) ReconcileRNAExternalClientCACertificate(ctx context
 		if err != nil {
 			return err
 		}
+
+		// Set the hash of the mTLS CA certificate(s) as an annotation
+		if externalClientCASecret.Annotations == nil {
+			externalClientCASecret.Annotations = map[string]string{}
+		}
+		externalClientCASecret.Annotations[MTLS_CA_HASH_ANNOTATION_KEY] = *mTLSCAsHash
+
 		externalClientCASecret.Data = map[string][]byte{
 			"ca.crt": caSecretRef.Data["ca.crt"],
 		}
@@ -440,12 +450,19 @@ func (cpt componentSts) setNodeLabel(nodeName string) {
 	cpt.sts.Spec.Template.Labels[NODE_LABEL_KEY] = nodeName
 }
 
+func (cpt componentSts) setPodTemplateAnnotation(mTLSCAsHash string) {
+	if cpt.sts.Spec.Template.Annotations == nil {
+		cpt.sts.Spec.Template.Annotations = map[string]string{}
+	}
+	cpt.sts.Spec.Template.Annotations[MTLS_CA_HASH_ANNOTATION_KEY] = mTLSCAsHash
+}
+
 /*
 	Beyond this point, the functions are specific to one Registry Node Agent instance on a Node:
 */
 
 // ReconcileRNAStatefulSet reconciles a Registry Node Agent as a StatefulSet on the specified node
-func (r *RegistryReconciler) ReconcileRNAStatefulSet(ctx context.Context, registryNamespace string, nodeName string, registry *metalk8sv1alpha1.Registry) error {
+func (r *RegistryReconciler) ReconcileRNAStatefulSet(ctx context.Context, registryNamespace string, nodeName string, mTLSCAsHash string, registry *metalk8sv1alpha1.Registry) error {
 	nodeToken := safeNodeName(nodeName)
 	registryNodeAgentStatefulSet := componentSts{r.RNA.StatefulSets[0].DeepCopy()}
 
@@ -493,6 +510,7 @@ func (r *RegistryReconciler) ReconcileRNAStatefulSet(ctx context.Context, regist
 
 	// Set Node label on Pod
 	registryNodeAgentStatefulSet.setNodeLabel(nodeName)
+	registryNodeAgentStatefulSet.setPodTemplateAnnotation(mTLSCAsHash)
 
 	// Set Volumes (archives, solutions, dev, TLS/mTLS Certificates, webhook-certs)
 	if err := registryNodeAgentStatefulSet.setRNAVolumes(registry, nodeName); err != nil {
