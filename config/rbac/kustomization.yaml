@@ -9,15 +9,22 @@ resources:
 - role_binding.yaml
 - leader_election_role.yaml
 - leader_election_role_binding.yaml
-# The following RBAC configurations are used to protect
-# the metrics endpoint with authn/authz. These configurations
-# ensure that only authorized users and service accounts
-# can access the metrics endpoint. Comment the following
-# permissions if you want to disable this protection.
+# The following RBAC configurations grant the operator ServiceAccount
+# the token/subjectaccessreview permissions it needs to be *allowed* to
+# install the metalk8s-registry-node-agent bundle: RNA ships a
+# `metrics-auth-role` ClusterRole containing these verbs, and Kubernetes
+# RBAC privilege-escalation prevention requires the operator to hold
+# every permission that any ClusterRole it applies grants. Even when
+# the operator's own /metrics endpoint is disabled, these must stay on
+# for Registry reconciliation to succeed.
 # More info: https://book.kubebuilder.io/reference/metrics.html
 - metrics_auth_role.yaml
 - metrics_auth_role_binding.yaml
-- metrics_reader_role.yaml
+# metrics_reader_role.yaml is a standalone helper ClusterRole intended
+# to be bound to human callers of the operator /metrics endpoint. The
+# operator itself neither uses nor installs it, so keep it off while
+# metrics are unplugged.
+# - metrics_reader_role.yaml
 # For each CRD, "Admin", "Editor" and "Viewer" roles are scaffolded by
 # default, aiding admins in cluster management. Those roles are
 # not used by the metalk8s-registry-operator itself. You can comment the following lines
@@ -31,8 +38,11 @@ resources:
 - solutionarchive_admin_role.yaml
 - solutionarchive_editor_role.yaml
 - solutionarchive_viewer_role.yaml
-# controller-gen does not deal with nonResourceURLs, so we use
-# additional RBAC configurations to allow the registry-operator
-# to apply the required clusterRole to registry-node-Agent
+# controller-gen does not deal with nonResourceURLs, so we hand-write a
+# ClusterRoleBinding that grants the operator SA the `/metrics` GET
+# nonResourceURL verb. This is required so the operator is allowed to
+# install the metalk8s-registry-node-agent `metrics-reader` ClusterRole
+# (RBAC privilege-escalation prevention), not because the operator itself
+# reads /metrics.
 - additional_rbac.yaml
 
