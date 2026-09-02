@@ -37,6 +37,27 @@ standard Operator SDK layout. Put your change where it belongs:
 - kustomize bases and overlays live in `config/`, the `static-oci-registry` manifest in `charts/`;
 - the Ginkgo suites live in `test/` (`e2e`, with its `helpers` package, and `integration`).
 
+### Repository layout
+
+```
+├── api/                   # Kubernetes API definitions (CRDs)
+│   └── v1alpha1/          # API version v1alpha1 types
+├── charts/                # static-oci-registry manifest
+├── cmd/                   # Application entry point
+│   └── config/            # Environment configuration
+├── config/                # Kubernetes manifests and kustomize overlays
+├── hack/                  # Build and development scripts
+├── internal/              # Internal packages (not importable)
+│   ├── controller/        # Kubernetes controller logic
+│   ├── utils/             # Shared internal utilities
+│   └── webhook/           # Admission webhook handlers
+│       └── v1alpha1/      # Webhook handlers for v1alpha1 API
+└── test/                  # Test suites
+    ├── e2e/               # End-to-end tests
+    │   └── helpers/       # Shared end-to-end helpers
+    └── integration/       # Integration tests
+```
+
 ## Coding conventions
 
 - **Errors**: standard library — wrap at the failure site with `fmt.Errorf("…: %w", err)` so
