@@ -1,3 +1,8 @@
+[![Post Merge](https://github.com/scality/metalk8s-registry-operator/actions/workflows/post-merge.yaml/badge.svg)](https://github.com/scality/metalk8s-registry-operator/actions/workflows/post-merge.yaml)
+[![GitHub release](https://img.shields.io/github/v/release/scality/metalk8s-registry-operator)](https://github.com/scality/metalk8s-registry-operator/releases/latest)
+[![Go version](https://img.shields.io/github/go-mod/go-version/scality/metalk8s-registry-operator)](go.mod)
+[![License](https://img.shields.io/github/license/scality/metalk8s-registry-operator)](LICENSE)
+
 # MetalK8s Registry Operator
 
 A Kubernetes operator that manages the registry infrastructure used to distribute Solution Archives (ISO images) across the cluster.
