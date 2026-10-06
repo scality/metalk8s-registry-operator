@@ -11,6 +11,7 @@ import (
 
 	cmv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	cmmetav1 "github.com/cert-manager/cert-manager/pkg/apis/meta/v1"
+	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	metalk8sv1alpha1 "github.com/scality/metalk8s-registry-operator/api/v1alpha1"
 	"github.com/scality/metalk8s-registry-operator/internal/utils"
 	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
@@ -102,6 +103,7 @@ func (r *RegistryReconciler) ReconcileRNAGenericResources(ctx context.Context, r
 	   * ClusterRole
 	   * RoleBinding
 	   * ClusterRoleBinding
+	   * ServiceMonitor
 	   * UnstructuredObjects
 	*/
 	log := logf.FromContext(ctx)
@@ -222,6 +224,22 @@ func (r *RegistryReconciler) ReconcileRNAGenericResources(ctx context.Context, r
 		// The Patch action updates the struct with additional fields (such as managed fields)
 		// We need to clean these fields
 		utils.CleanResource(clusterRoleBinding)
+	}
+
+	for _, serviceMonitor := range r.RNA.ServiceMonitors {
+		serviceMonitor.SetNamespace(*registry.Spec.Namespace)
+		if err := controllerutil.SetControllerReference(registry, serviceMonitor, r.Scheme); err != nil {
+			log.V(1).Info("error setting controller reference for ServiceMonitor", "name", serviceMonitor.Name)
+			return err
+		}
+		err = r.Patch(ctx, serviceMonitor, utils.ApplyPatch, client.ForceOwnership, client.FieldOwner(SSA_FIELD_OWNER_NAME))
+		if err != nil {
+			log.V(1).Info("error patching ServiceMonitor", "name", serviceMonitor.Name)
+			return err
+		}
+		// The Patch action updates the struct with additional fields (such as managed fields)
+		// We need to clean these fields
+		utils.CleanResource(serviceMonitor)
 	}
 
 	for _, obj := range r.RNA.UnstructuredObjects {
@@ -352,6 +370,7 @@ func (r *RegistryReconciler) ChangeNamespace(ctx context.Context, namespace stri
 	   * ValidatingWebhookConfiguration
 	   * RoleBinding
 	   * ClusterRoleBinding
+	   * ServiceMonitor
 	*/
 	r.RNA.Namespaces[0].Name = namespace
 
@@ -419,6 +438,24 @@ func (r *RegistryReconciler) ChangeNamespace(ctx context.Context, namespace stri
 			subjects = append(subjects, subject)
 		}
 		clusterRoleBinding.Subjects = subjects
+	}
+
+	for _, serviceMonitor := range r.RNA.ServiceMonitors {
+		endpoints := make([]monitoringv1.Endpoint, 0, len(serviceMonitor.Spec.Endpoints))
+		// Change namespace in TLS server name
+		for _, endpoint := range serviceMonitor.Spec.Endpoints {
+			if endpoint.TLSConfig != nil && endpoint.TLSConfig.ServerName != nil {
+				serverName := strings.Replace(
+					*endpoint.TLSConfig.ServerName,
+					fmt.Sprintf(".%s.svc", metalk8sv1alpha1.DEFAULT_NAMESPACE),
+					fmt.Sprintf(".%s.svc", namespace),
+					1,
+				)
+				endpoint.TLSConfig.ServerName = &serverName
+			}
+			endpoints = append(endpoints, endpoint)
+		}
+		serviceMonitor.Spec.Endpoints = endpoints
 	}
 }
 
