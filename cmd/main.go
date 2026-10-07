@@ -220,7 +220,7 @@ func main() {
 		Cache: cache.Options{
 			ByObject: map[client.Object]cache.ByObject{
 				&apiextensionsv1.CustomResourceDefinition{}: {
-					Field: fields.OneTermEqualSelector("metadata.name", controller.SERVICE_MONITOR_CRD_NAME),
+					Field: fields.OneTermEqualSelector("metadata.name", utils.SERVICE_MONITOR_CRD_NAME),
 				},
 			},
 		},

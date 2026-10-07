@@ -30,6 +30,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	metalk8sv1alpha1 "github.com/scality/metalk8s-registry-operator/api/v1alpha1"
+	"github.com/scality/metalk8s-registry-operator/internal/utils"
 )
 
 const (
@@ -184,6 +185,17 @@ func validateRegistry(ctx context.Context, c client.Client, registry *metalk8sv1
 		}
 	default:
 		return fmt.Errorf("agent.certificateIssuerRef.kind is not supported")
+	}
+
+	// Test that the ServiceMonitor CRD is established when monitoring is enabled
+	if registry.IsMonitoringEnabled() {
+		established, err := utils.IsServiceMonitorCRDEstablished(ctx, c)
+		if err != nil {
+			return err
+		}
+		if !established {
+			return fmt.Errorf("monitoring is enabled but the ServiceMonitor CRD (%s) is not established", utils.SERVICE_MONITOR_CRD_NAME)
+		}
 	}
 
 	return nil

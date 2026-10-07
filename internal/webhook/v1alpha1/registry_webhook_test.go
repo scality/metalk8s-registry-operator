@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"context"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -26,10 +27,31 @@ import (
 	cmv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	cmmetav1 "github.com/cert-manager/cert-manager/pkg/apis/meta/v1"
 	metalk8sv1alpha1 "github.com/scality/metalk8s-registry-operator/api/v1alpha1"
+	"github.com/scality/metalk8s-registry-operator/internal/utils"
 	corev1 "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+// serviceMonitorCRDClient serves the given ServiceMonitor CRD, or a NotFound error when nil
+type serviceMonitorCRDClient struct {
+	client.Client
+	crd *apiextensionsv1.CustomResourceDefinition
+}
+
+func (c serviceMonitorCRDClient) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+	crd, ok := obj.(*apiextensionsv1.CustomResourceDefinition)
+	if !ok || key.Name != utils.SERVICE_MONITOR_CRD_NAME {
+		return c.Client.Get(ctx, key, obj, opts...)
+	}
+	if c.crd == nil {
+		return apierrors.NewNotFound(apiextensionsv1.Resource("customresourcedefinitions"), key.Name)
+	}
+	c.crd.DeepCopyInto(crd)
+	return nil
+}
 
 const (
 	TEST_NAMESPACE     = "my-namespace"
@@ -320,6 +342,42 @@ var _ = Describe("Registry Webhook", func() {
 
 			By("validating the creation")
 			Expect(validator.ValidateCreate(ctx, obj)).Error().To(HaveOccurred())
+		})
+
+		It("Should allow creation when monitoring is enabled and the ServiceMonitor CRD is established", func() {
+			obj.Spec.Monitoring = &metalk8sv1alpha1.MonitoringSpec{Enabled: true}
+
+			Eventually(func() error {
+				_, err := validator.ValidateCreate(ctx, obj)
+				return err
+			}, timeout, interval).Should(Succeed())
+		})
+
+		It("Should deny creation when monitoring is enabled and the ServiceMonitor CRD doesn't exist", func() {
+			obj.Spec.Monitoring = &metalk8sv1alpha1.MonitoringSpec{Enabled: true}
+			validator.client = serviceMonitorCRDClient{Client: k8sClient}
+
+			Expect(validator.ValidateCreate(ctx, obj)).Error().To(MatchError(ContainSubstring("ServiceMonitor CRD")))
+		})
+
+		It("Should deny creation when monitoring is enabled and the ServiceMonitor CRD is not established", func() {
+			obj.Spec.Monitoring = &metalk8sv1alpha1.MonitoringSpec{Enabled: true}
+			validator.client = serviceMonitorCRDClient{
+				Client: k8sClient,
+				crd:    &apiextensionsv1.CustomResourceDefinition{ObjectMeta: metav1.ObjectMeta{Name: utils.SERVICE_MONITOR_CRD_NAME}},
+			}
+
+			Expect(validator.ValidateCreate(ctx, obj)).Error().To(MatchError(ContainSubstring("ServiceMonitor CRD")))
+		})
+
+		It("Should allow creation when monitoring is disabled and the ServiceMonitor CRD doesn't exist", func() {
+			obj.Spec.Monitoring = &metalk8sv1alpha1.MonitoringSpec{Enabled: false}
+			validator.client = serviceMonitorCRDClient{Client: k8sClient}
+
+			Eventually(func() error {
+				_, err := validator.ValidateCreate(ctx, obj)
+				return err
+			}, timeout, interval).Should(Succeed())
 		})
 
 		It("Should allow creation when registry is valid and no other registry exists", func() {

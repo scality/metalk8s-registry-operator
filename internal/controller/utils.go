@@ -3,6 +3,7 @@ package controller
 import (
 	"fmt"
 	"hash/fnv"
+	"maps"
 	"slices"
 
 	"context"
@@ -226,7 +227,7 @@ func (r *RegistryReconciler) ReconcileRNAGenericResources(ctx context.Context, r
 		utils.CleanResource(clusterRoleBinding)
 	}
 
-	if err = r.reconcileServiceMonitors(ctx, registry); err != nil {
+	if err = r.reconcileRNAServiceMonitors(ctx, registry); err != nil {
 		return err
 	}
 
@@ -249,8 +250,9 @@ func (r *RegistryReconciler) ReconcileRNAGenericResources(ctx context.Context, r
 	return nil
 }
 
-// reconcileServiceMonitors applies the Registry Node Agent ServiceMonitors, if their CRD is established
-func (r *RegistryReconciler) reconcileServiceMonitors(ctx context.Context, registry *metalk8sv1alpha1.Registry) error {
+// reconcileRNAServiceMonitors applies the Registry Node Agent ServiceMonitors when monitoring is enabled
+// and the ServiceMonitor CRD is established, and deletes them when monitoring is disabled
+func (r *RegistryReconciler) reconcileRNAServiceMonitors(ctx context.Context, registry *metalk8sv1alpha1.Registry) error {
 	log := logf.FromContext(ctx)
 
 	watched, err := r.ensureServiceMonitorWatch(ctx)
@@ -258,14 +260,35 @@ func (r *RegistryReconciler) reconcileServiceMonitors(ctx context.Context, regis
 		return err
 	}
 	if !watched {
-		if len(r.RNA.ServiceMonitors) > 0 {
+		if registry.IsMonitoringEnabled() && len(r.RNA.ServiceMonitors) > 0 {
 			log.V(1).Info("ServiceMonitor CRD not established, skipping ServiceMonitors")
 		}
 		return nil
 	}
 
-	for _, serviceMonitor := range r.RNA.ServiceMonitors {
+	if !registry.IsMonitoringEnabled() {
+		for _, serviceMonitor := range r.RNA.ServiceMonitors {
+			obj := &monitoringv1.ServiceMonitor{ObjectMeta: metav1.ObjectMeta{
+				Name:      serviceMonitor.Name,
+				Namespace: *registry.Spec.Namespace,
+			}}
+			if err := client.IgnoreNotFound(r.Delete(ctx, obj)); err != nil {
+				log.V(1).Info("error deleting ServiceMonitor", "name", serviceMonitor.Name)
+				return err
+			}
+		}
+		return nil
+	}
+
+	for _, manifest := range r.RNA.ServiceMonitors {
+		serviceMonitor := manifest.DeepCopy()
 		serviceMonitor.SetNamespace(*registry.Spec.Namespace)
+		labels := serviceMonitor.GetLabels()
+		if labels == nil {
+			labels = map[string]string{}
+		}
+		maps.Copy(labels, registry.Spec.Monitoring.PrometheusLabels)
+		serviceMonitor.SetLabels(labels)
 		if err := controllerutil.SetControllerReference(registry, serviceMonitor, r.Scheme); err != nil {
 			log.V(1).Info("error setting controller reference for ServiceMonitor", "name", serviceMonitor.Name)
 			return err
@@ -275,9 +298,6 @@ func (r *RegistryReconciler) reconcileServiceMonitors(ctx context.Context, regis
 			log.V(1).Info("error patching ServiceMonitor", "name", serviceMonitor.Name)
 			return err
 		}
-		// The Patch action updates the struct with additional fields (such as managed fields)
-		// We need to clean these fields
-		utils.CleanResource(serviceMonitor)
 	}
 	return nil
 }

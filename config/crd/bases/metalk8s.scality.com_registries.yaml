@@ -287,6 +287,21 @@ spec:
                 required:
                 - enabled
                 type: object
+              monitoring:
+                description: Monitoring controls the deployment of the ServiceMonitor.
+                properties:
+                  enabled:
+                    default: false
+                    description: Enabled controls whether the ServiceMonitor is deployed.
+                    type: boolean
+                  prometheusLabels:
+                    additionalProperties:
+                      type: string
+                    description: Labels Prometheus will use to select the ServiceMonitor.
+                    type: object
+                required:
+                - enabled
+                type: object
               namespace:
                 description: Namespace where the registry resources are deployed,
                   defaults to "metalk8s-registry-system".

@@ -1911,6 +1911,10 @@ var _ = Describe("Registry Controller", func() {
 					SolutionsPath: ptr.To("/srv/scality/metalk8s/solutions"),
 					Namespace:     ptr.To("namespace-test-6"),
 					NodeSelector:  map[string]string{"registry": "service-monitor"},
+					Monitoring: &metalk8sv1alpha1.MonitoringSpec{
+						Enabled:          true,
+						PrometheusLabels: map[string]string{"release": "kube-prometheus-stack"},
+					},
 					Server: metalk8sv1alpha1.RegistryServerSpec{
 						CertificateIssuerRef: cmmetav1.ObjectReference{
 							Name: "registry-server-issuer",
@@ -1954,6 +1958,7 @@ var _ = Describe("Registry Controller", func() {
 				return k8sClient.Get(ctx, serviceMonitorName, serviceMonitor)
 			}, timeout, interval).Should(Succeed())
 			Expect(metav1.IsControlledBy(serviceMonitor, createdResource)).To(BeTrue())
+			Expect(serviceMonitor.Labels).To(HaveKeyWithValue("release", "kube-prometheus-stack"))
 
 			By("checking the ServiceMonitor is recreated once deleted")
 			deletedUID := serviceMonitor.UID
@@ -1962,6 +1967,65 @@ var _ = Describe("Registry Controller", func() {
 				err := k8sClient.Get(ctx, serviceMonitorName, serviceMonitor)
 				return serviceMonitor.UID, err
 			}, timeout, interval).ShouldNot(Equal(deletedUID))
+
+			By("disabling monitoring and checking the ServiceMonitor is deleted")
+			Expect(k8sClient.Get(ctx, typeNamespacedName, createdResource)).To(Succeed())
+			createdResource.Spec.Monitoring.Enabled = false
+			Expect(k8sClient.Update(ctx, createdResource)).To(Succeed())
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, serviceMonitorName, &monitoringv1.ServiceMonitor{})
+				return errors.IsNotFound(err)
+			}, timeout, interval).Should(BeTrue())
+		})
+
+		It("does not add a ServiceMonitor when the monitoring section is omitted", func() {
+			resource := &metalk8sv1alpha1.Registry{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-service-monitor-disabled",
+				},
+				Spec: metalk8sv1alpha1.RegistrySpec{
+					LogLevel:      ptr.To("info"),
+					ArchivesPath:  ptr.To("/srv/scality/metalk8s/archives"),
+					SolutionsPath: ptr.To("/srv/scality/metalk8s/solutions"),
+					Namespace:     ptr.To("namespace-test-7"),
+					NodeSelector:  map[string]string{"registry": "service-monitor-disabled"},
+					Server: metalk8sv1alpha1.RegistryServerSpec{
+						CertificateIssuerRef: cmmetav1.ObjectReference{
+							Name: "registry-server-issuer",
+							Kind: "ClusterIssuer",
+						},
+					},
+					Agent: metalk8sv1alpha1.RegistryNodeAgentSpec{
+						Authentication: metalk8sv1alpha1.AuthenticationSpec{
+							MTLS: metalk8sv1alpha1.MTLSAuthenticationSpec{
+								CASecretRef: corev1.SecretReference{
+									Name:      "registry-agent-mtls-ca",
+									Namespace: secretNamespace,
+								},
+							},
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, resource)).To(Succeed())
+			DeferCleanup(func() { deleteResource(ctx, k8sClient, resource) })
+
+			By("checking the registry node agent ServiceAccount is reconciled")
+			Eventually(func() error {
+				return k8sClient.Get(ctx, types.NamespacedName{
+					Name:      "metalk8s-registry-node-agent-controller-manager",
+					Namespace: "namespace-test-7",
+				}, &corev1.ServiceAccount{})
+			}, timeout, interval).Should(Succeed())
+
+			By("checking no ServiceMonitor is created")
+			Consistently(func() bool {
+				err := k8sClient.Get(ctx, types.NamespacedName{
+					Name:      "metalk8s-registry-node-agent-controller-manager-metrics-monitor",
+					Namespace: "namespace-test-7",
+				}, &monitoringv1.ServiceMonitor{})
+				return errors.IsNotFound(err)
+			}, 2*time.Second, interval).Should(BeTrue())
 		})
 	})
 })

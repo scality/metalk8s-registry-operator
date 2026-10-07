@@ -57,8 +57,6 @@ const (
 	RNA_APP_LABEL_VALUE = "metalk8s-registry-node-agent"
 	RS_APP_LABEL_VALUE  = "metalk8s-registry-server"
 	NODE_LABEL_KEY      = "node"
-
-	SERVICE_MONITOR_CRD_NAME = "servicemonitors.monitoring.coreos.com"
 )
 
 // RegistryReconciler reconciles a Registry object
@@ -717,7 +715,7 @@ func (r *RegistryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 func isServiceMonitorCRD(obj client.Object) bool {
-	return obj.GetName() == SERVICE_MONITOR_CRD_NAME
+	return obj.GetName() == utils.SERVICE_MONITOR_CRD_NAME
 }
 
 // ensureServiceMonitorWatch starts watching ServiceMonitors once their CRD is established,
@@ -727,12 +725,9 @@ func (r *RegistryReconciler) ensureServiceMonitorWatch(ctx context.Context) (boo
 		return true, nil
 	}
 
-	crd := &apiextensionsv1.CustomResourceDefinition{}
-	if err := r.Get(ctx, types.NamespacedName{Name: SERVICE_MONITOR_CRD_NAME}, crd); err != nil {
-		return false, client.IgnoreNotFound(err)
-	}
-	if !isCRDEstablished(crd) {
-		return false, nil
+	established, err := utils.IsServiceMonitorCRDEstablished(ctx, r)
+	if err != nil || !established {
+		return false, err
 	}
 	// Not set up with a manager: there is no controller to add the watch to
 	if r.controller == nil {
@@ -742,7 +737,7 @@ func (r *RegistryReconciler) ensureServiceMonitorWatch(ctx context.Context) (boo
 	if !r.serviceMonitorWatched.CompareAndSwap(false, true) {
 		return true, nil
 	}
-	err := r.controller.Watch(source.Kind(r.cache, client.Object(&monitoringv1.ServiceMonitor{}),
+	err = r.controller.Watch(source.Kind(r.cache, client.Object(&monitoringv1.ServiceMonitor{}),
 		handler.EnqueueRequestForOwner(r.Scheme, r.RESTMapper(),
 			&metalk8sv1alpha1.Registry{}, handler.OnlyControllerOwner())))
 	if err != nil {
@@ -751,13 +746,4 @@ func (r *RegistryReconciler) ensureServiceMonitorWatch(ctx context.Context) (boo
 	}
 	logf.FromContext(ctx).Info("ServiceMonitor CRD established, watching ServiceMonitors")
 	return true, nil
-}
-
-func isCRDEstablished(crd *apiextensionsv1.CustomResourceDefinition) bool {
-	for _, condition := range crd.Status.Conditions {
-		if condition.Type == apiextensionsv1.Established {
-			return condition.Status == apiextensionsv1.ConditionTrue
-		}
-	}
-	return false
 }
