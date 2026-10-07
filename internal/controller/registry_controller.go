@@ -21,18 +21,22 @@ import (
 	"fmt"
 	"slices"
 	"sync"
+	"sync/atomic"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	cmv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 
@@ -44,6 +48,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 )
 
 const (
@@ -52,6 +57,8 @@ const (
 	RNA_APP_LABEL_VALUE = "metalk8s-registry-node-agent"
 	RS_APP_LABEL_VALUE  = "metalk8s-registry-server"
 	NODE_LABEL_KEY      = "node"
+
+	SERVICE_MONITOR_CRD_NAME = "servicemonitors.monitoring.coreos.com"
 )
 
 // RegistryReconciler reconciles a Registry object
@@ -68,6 +75,12 @@ type RegistryReconciler struct {
 	mu           sync.RWMutex
 	mTLSCASecret corev1.SecretReference
 	registryName string
+
+	// ServiceMonitors are only reconciled once their CRD is established, as
+	// prometheus-operator may be installed after this operator.
+	controller            controller.Controller
+	cache                 cache.Cache
+	serviceMonitorWatched atomic.Bool
 }
 
 // +kubebuilder:rbac:groups=metalk8s.scality.com,resources=registries,verbs=get;list;watch;create;update;patch;delete
@@ -607,7 +620,7 @@ func (r *RegistryReconciler) isMTLSCASecret(obj client.Object) bool {
 
 // enqueueRegistry enqueues the (unique) Registry tracked by the reconciler. It is
 // used to reconcile the Registry when its mTLS CA Secret changes, without having to
-// look up which Registry owns the Secret.
+// look up which Registry owns the Secret or when the ServiceMonitor CRD is applied.
 func (r *RegistryReconciler) enqueueRegistry(_ context.Context, _ client.Object) []reconcile.Request {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -667,7 +680,7 @@ func isIncluded(subset, superset map[string]string) bool {
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *RegistryReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).
+	c, err := ctrl.NewControllerManagedBy(mgr).
 		For(&metalk8sv1alpha1.Registry{}).
 		Owns(&appsv1.StatefulSet{}).
 		Owns(&appsv1.DaemonSet{}).
@@ -682,13 +695,69 @@ func (r *RegistryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&rbacv1.ClusterRole{}).
 		Owns(&rbacv1.RoleBinding{}).
 		Owns(&rbacv1.ClusterRoleBinding{}).
-		Owns(&monitoringv1.ServiceMonitor{}).
 		Watches(&corev1.Node{}, handler.EnqueueRequestsFromMapFunc(matchingRegistries(r.Client))).
 		Watches(
 			&corev1.Secret{},
 			handler.EnqueueRequestsFromMapFunc(r.enqueueRegistry),
 			builder.WithPredicates(predicate.NewPredicateFuncs(r.isMTLSCASecret)),
 		).
+		Watches(
+			&apiextensionsv1.CustomResourceDefinition{},
+			handler.EnqueueRequestsFromMapFunc(r.enqueueRegistry),
+			builder.WithPredicates(predicate.NewPredicateFuncs(isServiceMonitorCRD)),
+		).
 		Named("registry").
-		Complete(r)
+		Build(r)
+	if err != nil {
+		return err
+	}
+	r.controller = c
+	r.cache = mgr.GetCache()
+	return nil
+}
+
+func isServiceMonitorCRD(obj client.Object) bool {
+	return obj.GetName() == SERVICE_MONITOR_CRD_NAME
+}
+
+// ensureServiceMonitorWatch starts watching ServiceMonitors once their CRD is established,
+// and reports whether ServiceMonitors can be reconciled. Must not run before the controller starts.
+func (r *RegistryReconciler) ensureServiceMonitorWatch(ctx context.Context) (bool, error) {
+	if r.serviceMonitorWatched.Load() {
+		return true, nil
+	}
+
+	crd := &apiextensionsv1.CustomResourceDefinition{}
+	if err := r.Get(ctx, types.NamespacedName{Name: SERVICE_MONITOR_CRD_NAME}, crd); err != nil {
+		return false, client.IgnoreNotFound(err)
+	}
+	if !isCRDEstablished(crd) {
+		return false, nil
+	}
+	// Not set up with a manager: there is no controller to add the watch to
+	if r.controller == nil {
+		return true, nil
+	}
+
+	if !r.serviceMonitorWatched.CompareAndSwap(false, true) {
+		return true, nil
+	}
+	err := r.controller.Watch(source.Kind(r.cache, client.Object(&monitoringv1.ServiceMonitor{}),
+		handler.EnqueueRequestForOwner(r.Scheme, r.RESTMapper(),
+			&metalk8sv1alpha1.Registry{}, handler.OnlyControllerOwner())))
+	if err != nil {
+		r.serviceMonitorWatched.Store(false)
+		return false, err
+	}
+	logf.FromContext(ctx).Info("ServiceMonitor CRD established, watching ServiceMonitors")
+	return true, nil
+}
+
+func isCRDEstablished(crd *apiextensionsv1.CustomResourceDefinition) bool {
+	for _, condition := range crd.Status.Conditions {
+		if condition.Type == apiextensionsv1.Established {
+			return condition.Status == apiextensionsv1.ConditionTrue
+		}
+	}
+	return false
 }
