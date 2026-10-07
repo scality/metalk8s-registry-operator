@@ -226,20 +226,8 @@ func (r *RegistryReconciler) ReconcileRNAGenericResources(ctx context.Context, r
 		utils.CleanResource(clusterRoleBinding)
 	}
 
-	for _, serviceMonitor := range r.RNA.ServiceMonitors {
-		serviceMonitor.SetNamespace(*registry.Spec.Namespace)
-		if err := controllerutil.SetControllerReference(registry, serviceMonitor, r.Scheme); err != nil {
-			log.V(1).Info("error setting controller reference for ServiceMonitor", "name", serviceMonitor.Name)
-			return err
-		}
-		err = r.Patch(ctx, serviceMonitor, utils.ApplyPatch, client.ForceOwnership, client.FieldOwner(SSA_FIELD_OWNER_NAME))
-		if err != nil {
-			log.V(1).Info("error patching ServiceMonitor", "name", serviceMonitor.Name)
-			return err
-		}
-		// The Patch action updates the struct with additional fields (such as managed fields)
-		// We need to clean these fields
-		utils.CleanResource(serviceMonitor)
+	if err = r.reconcileServiceMonitors(ctx, registry); err != nil {
+		return err
 	}
 
 	for _, obj := range r.RNA.UnstructuredObjects {
@@ -258,6 +246,39 @@ func (r *RegistryReconciler) ReconcileRNAGenericResources(ctx context.Context, r
 		utils.CleanResource(obj)
 	}
 
+	return nil
+}
+
+// reconcileServiceMonitors applies the Registry Node Agent ServiceMonitors, if their CRD is established
+func (r *RegistryReconciler) reconcileServiceMonitors(ctx context.Context, registry *metalk8sv1alpha1.Registry) error {
+	log := logf.FromContext(ctx)
+
+	watched, err := r.ensureServiceMonitorWatch(ctx)
+	if err != nil {
+		return err
+	}
+	if !watched {
+		if len(r.RNA.ServiceMonitors) > 0 {
+			log.V(1).Info("ServiceMonitor CRD not established, skipping ServiceMonitors")
+		}
+		return nil
+	}
+
+	for _, serviceMonitor := range r.RNA.ServiceMonitors {
+		serviceMonitor.SetNamespace(*registry.Spec.Namespace)
+		if err := controllerutil.SetControllerReference(registry, serviceMonitor, r.Scheme); err != nil {
+			log.V(1).Info("error setting controller reference for ServiceMonitor", "name", serviceMonitor.Name)
+			return err
+		}
+		err := r.Patch(ctx, serviceMonitor, utils.ApplyPatch, client.ForceOwnership, client.FieldOwner(SSA_FIELD_OWNER_NAME))
+		if err != nil {
+			log.V(1).Info("error patching ServiceMonitor", "name", serviceMonitor.Name)
+			return err
+		}
+		// The Patch action updates the struct with additional fields (such as managed fields)
+		// We need to clean these fields
+		utils.CleanResource(serviceMonitor)
+	}
 	return nil
 }
 
