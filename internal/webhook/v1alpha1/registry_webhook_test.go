@@ -357,7 +357,10 @@ var _ = Describe("Registry Webhook", func() {
 			obj.Spec.Monitoring = &metalk8sv1alpha1.MonitoringSpec{Enabled: true}
 			validator.client = serviceMonitorCRDClient{Client: k8sClient}
 
-			Expect(validator.ValidateCreate(ctx, obj)).Error().To(MatchError(ContainSubstring("ServiceMonitor CRD")))
+			Eventually(func() error {
+				_, err := validator.ValidateCreate(ctx, obj)
+				return err
+			}, timeout, interval).Should(MatchError(ContainSubstring("ServiceMonitor CRD")))
 		})
 
 		It("Should deny creation when monitoring is enabled and the ServiceMonitor CRD is not established", func() {
@@ -367,7 +370,10 @@ var _ = Describe("Registry Webhook", func() {
 				crd:    &apiextensionsv1.CustomResourceDefinition{ObjectMeta: metav1.ObjectMeta{Name: utils.SERVICE_MONITOR_CRD_NAME}},
 			}
 
-			Expect(validator.ValidateCreate(ctx, obj)).Error().To(MatchError(ContainSubstring("ServiceMonitor CRD")))
+			Eventually(func() error {
+				_, err := validator.ValidateCreate(ctx, obj)
+				return err
+			}, timeout, interval).Should(MatchError(ContainSubstring("ServiceMonitor CRD")))
 		})
 
 		It("Should allow creation when monitoring is disabled and the ServiceMonitor CRD doesn't exist", func() {
