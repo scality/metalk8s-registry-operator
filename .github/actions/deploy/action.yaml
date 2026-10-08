@@ -9,6 +9,11 @@ runs:
   using: "composite"
   steps:
 
+    - name: Create E2E namespace
+      shell: bash
+      run: |-
+        kubectl create ns my-namespace
+
     - name: Deploy the operator
       shell: bash
       env:

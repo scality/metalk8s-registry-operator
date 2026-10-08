@@ -34,7 +34,7 @@ const (
 	// to CreateRegistry; the CA secret and the cert-manager Issuer both
 	// live here so the operator's validating webhook can find them (it
 	// resolves the Issuer against `registry.GetRegistryNamespace()`).
-	RegistryNamespace = "metalk8s-registry"
+	RegistryNamespace = "my-namespace"
 
 	// CASecretName is the name of the CA Secret used both for
 	//   .spec.server.certificateIssuerRef (via a matching Issuer wrapping
