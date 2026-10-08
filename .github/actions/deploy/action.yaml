@@ -30,9 +30,9 @@ runs:
         # .spec.{agent,server}.image.pullSecrets. Create both eagerly so
         # tests never have to wait for image pulls that would otherwise be
         # routed through the not-yet-running mirror.
-        kubectl create ns metalk8s-registry
+        kubectl create ns my-namespace
         kubectl create secret docker-registry registry-pull-secret \
-          -n metalk8s-registry \
+          -n my-namespace \
           --docker-server=ghcr.io --docker-username=ci \
           --docker-password="${PULL_SECRET}" --docker-email=ci@scality.com
 
