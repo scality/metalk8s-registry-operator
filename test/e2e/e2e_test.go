@@ -31,6 +31,7 @@ import (
 	. "github.com/onsi/gomega"
 
 	cmapi "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
+	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	rnav1alpha1 "github.com/scality/metalk8s-registry-node-agent/api/v1alpha1"
 	apiextv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -69,6 +70,7 @@ var _ = BeforeSuite(func() {
 	Expect(apiextv1.AddToScheme(scheme.Scheme)).To(Succeed())
 	Expect(rnav1alpha1.AddToScheme(scheme.Scheme)).To(Succeed())
 	Expect(cmapi.AddToScheme(scheme.Scheme)).To(Succeed())
+	Expect(monitoringv1.AddToScheme(scheme.Scheme)).To(Succeed())
 
 	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
 	Expect(err).NotTo(HaveOccurred())

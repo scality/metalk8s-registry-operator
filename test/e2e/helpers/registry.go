@@ -149,6 +149,20 @@ func ForceRemoveRegistryFinalizers(ctx context.Context, c client.Client) error {
 	return nil
 }
 
+// SetRegistryMonitoring replaces .spec.monitoring of the standard Registry CR.
+func SetRegistryMonitoring(ctx context.Context, c client.Client, monitoring *metalk8sv1alpha1.MonitoringSpec) error {
+	reg, err := GetRegistry(ctx, c)
+	if err != nil {
+		return err
+	}
+	patch := client.MergeFrom(reg.DeepCopy())
+	reg.Spec.Monitoring = monitoring
+	if err := c.Patch(ctx, reg, patch); err != nil {
+		return fmt.Errorf("patch Registry monitoring: %w", err)
+	}
+	return nil
+}
+
 // DeletePerNodeTLSSecrets removes the per-node TLS Secrets that cert-manager
 // materialises for the RS and RNA StatefulSets. These Secrets are created by
 // cert-manager on behalf of Certificate resources owned by the Registry CR,
