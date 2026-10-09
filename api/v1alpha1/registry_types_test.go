@@ -24,6 +24,23 @@ import (
 )
 
 var _ = Describe("Registry", func() {
+	Describe("IsMonitoringEnabled", func() {
+		It("Should return false when monitoring section is nil (default)", func() {
+			r := &Registry{Spec: RegistrySpec{Monitoring: nil}}
+			Expect(r.IsMonitoringEnabled()).To(BeFalse())
+		})
+
+		It("Should return false when monitoring is explicitly disabled", func() {
+			r := &Registry{Spec: RegistrySpec{Monitoring: &MonitoringSpec{Enabled: false}}}
+			Expect(r.IsMonitoringEnabled()).To(BeFalse())
+		})
+
+		It("Should return true when monitoring is explicitly enabled", func() {
+			r := &Registry{Spec: RegistrySpec{Monitoring: &MonitoringSpec{Enabled: true}}}
+			Expect(r.IsMonitoringEnabled()).To(BeTrue())
+		})
+	})
+
 	Describe("IsMirrorPropagationEnabled", func() {
 		It("Should return true when mirrorPropagation section is nil (default)", func() {
 			By("creating a Registry with no mirrorPropagation section")

@@ -160,8 +160,14 @@ dist/crds/cert-manager-clusterissuers.yaml:
 	CERT_MANAGER_PATH=$$(go list -m -f '{{.Dir}}' github.com/cert-manager/cert-manager) && \
 	cp "$$CERT_MANAGER_PATH/deploy/crds/cert-manager.io_clusterissuers.yaml" $@
 
+# ServiceMonitor CRD is required for tests (Registry controller manages ServiceMonitors).
+PROMETHEUS_OPERATOR := $(shell go list -f '{{.Version}}' -m github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring)
+dist/crds/prometheus-servicemonitors.yaml:
+	@mkdir -p $(@D)
+	curl -sSfL -o $@ "https://raw.githubusercontent.com/prometheus-operator/prometheus-operator/$(PROMETHEUS_OPERATOR)/example/prometheus-operator-crd/monitoring.coreos.com_servicemonitors.yaml"
+
 .PHONY: download-manifests
-download-manifests: dist/crds/registry-node-agent.yaml dist/registry-node-agent.yaml dist/crds/cert-manager-certificates.yaml dist/crds/cert-manager-issuers.yaml dist/crds/cert-manager-clusterissuers.yaml
+download-manifests: dist/crds/registry-node-agent.yaml dist/registry-node-agent.yaml dist/crds/cert-manager-certificates.yaml dist/crds/cert-manager-issuers.yaml dist/crds/cert-manager-clusterissuers.yaml dist/crds/prometheus-servicemonitors.yaml
 
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter

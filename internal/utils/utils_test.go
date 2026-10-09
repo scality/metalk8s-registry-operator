@@ -19,7 +19,40 @@ package utils
 import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 )
+
+var _ = Describe("IsCRDEstablished", func() {
+	crdWithConditions := func(conditions ...apiextensionsv1.CustomResourceDefinitionCondition) *apiextensionsv1.CustomResourceDefinition {
+		return &apiextensionsv1.CustomResourceDefinition{
+			Status: apiextensionsv1.CustomResourceDefinitionStatus{Conditions: conditions},
+		}
+	}
+
+	It("returns false when the CRD has no condition", func() {
+		Expect(IsCRDEstablished(crdWithConditions())).To(BeFalse())
+	})
+
+	It("returns false when the Established condition is not true", func() {
+		Expect(IsCRDEstablished(crdWithConditions(apiextensionsv1.CustomResourceDefinitionCondition{
+			Type:   apiextensionsv1.Established,
+			Status: apiextensionsv1.ConditionFalse,
+		}))).To(BeFalse())
+	})
+
+	It("returns true when the Established condition is true", func() {
+		Expect(IsCRDEstablished(crdWithConditions(
+			apiextensionsv1.CustomResourceDefinitionCondition{
+				Type:   apiextensionsv1.NamesAccepted,
+				Status: apiextensionsv1.ConditionTrue,
+			},
+			apiextensionsv1.CustomResourceDefinitionCondition{
+				Type:   apiextensionsv1.Established,
+				Status: apiextensionsv1.ConditionTrue,
+			},
+		))).To(BeTrue())
+	})
+})
 
 var _ = Describe("GenerateContainerdHostsToml", func() {
 	It("returns an empty string when there are no hosts", func() {

@@ -95,6 +95,15 @@ type RegistryNodeAgentSpec struct {
 	Image *ImageSpec `json:"image,omitempty"`
 }
 
+type MonitoringSpec struct {
+	// Enabled controls whether the ServiceMonitor is deployed.
+	// +kubebuilder:default=false
+	Enabled bool `json:"enabled"`
+	// Labels Prometheus will use to select the ServiceMonitor.
+	// +kubebuilder:validation:Optional
+	PrometheusLabels map[string]string `json:"prometheusLabels,omitempty"`
+}
+
 type MirrorPropagationSpec struct {
 	// Enabled controls whether the mirror config propagation is active.
 	// +kubebuilder:default=true
@@ -150,6 +159,9 @@ type RegistrySpec struct {
 	// MirrorPropagation controls generation of the containerd registry mirror ConfigMap.
 	// +kubebuilder:validation:Optional
 	MirrorPropagation *MirrorPropagationSpec `json:"mirrorPropagation,omitempty"`
+	// Monitoring controls the deployment of the ServiceMonitor.
+	// +kubebuilder:validation:Optional
+	Monitoring *MonitoringSpec `json:"monitoring,omitempty"`
 }
 
 type ProcessStatus struct {
@@ -356,6 +368,12 @@ func (r *Registry) GetSolutionsPath() string {
 // be generated. It defaults to true when the mirrorPropagation section is omitted.
 func (r *Registry) IsMirrorPropagationEnabled() bool {
 	return r.Spec.MirrorPropagation == nil || r.Spec.MirrorPropagation.Enabled
+}
+
+// IsMonitoringEnabled returns whether the ServiceMonitors should be deployed.
+// It defaults to false when the monitoring section is omitted.
+func (r *Registry) IsMonitoringEnabled() bool {
+	return r.Spec.Monitoring != nil && r.Spec.Monitoring.Enabled
 }
 
 // GetMirrorPropagationImage returns the file-reflector image spec, with its

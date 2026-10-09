@@ -1,12 +1,36 @@
 package utils
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+const SERVICE_MONITOR_CRD_NAME = "servicemonitors.monitoring.coreos.com"
+
+// IsCRDEstablished returns whether the CRD is served by the API server
+func IsCRDEstablished(crd *apiextensionsv1.CustomResourceDefinition) bool {
+	for _, condition := range crd.Status.Conditions {
+		if condition.Type == apiextensionsv1.Established {
+			return condition.Status == apiextensionsv1.ConditionTrue
+		}
+	}
+	return false
+}
+
+// IsServiceMonitorCRDEstablished returns whether the ServiceMonitor CRD exists and is established
+func IsServiceMonitorCRDEstablished(ctx context.Context, c client.Reader) (bool, error) {
+	crd := &apiextensionsv1.CustomResourceDefinition{}
+	if err := c.Get(ctx, types.NamespacedName{Name: SERVICE_MONITOR_CRD_NAME}, crd); err != nil {
+		return false, client.IgnoreNotFound(err)
+	}
+	return IsCRDEstablished(crd), nil
+}
 
 // GetNodeSolutionArchiveVersionedName returns the versioned name of the NodeSolutionArchive
 func GetNodeSolutionArchiveVersionedName(name string, version string) string {
