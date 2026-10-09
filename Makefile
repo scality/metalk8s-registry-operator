@@ -135,9 +135,7 @@ include test/e2e/isos.mk
 REGISTRY_NODE_AGENT := $(shell go list -f '{{.Version}}' -m github.com/scality/metalk8s-registry-node-agent)
 dist/registry-node-agent.yaml:
 	@mkdir -p $(@D)
-	@URL="https://api.github.com/repos/scality/metalk8s-registry-node-agent/releases/tags/$(REGISTRY_NODE_AGENT)" && \
-	BUNDLE_URL=$$(curl -sS -H "Authorization: token $$GIT_ACCESS_TOKEN" "$$URL" | jq -r '.assets[] | select(.name == "bundle.yaml") | .url') && \
-	curl -sSL -H "Authorization: token $$GIT_ACCESS_TOKEN" -H "Accept: application/octet-stream" "$$BUNDLE_URL" -o $@
+	curl -sSfL "https://github.com/scality/metalk8s-registry-node-agent/releases/download/$(REGISTRY_NODE_AGENT)/bundle.yaml" -o $@
 
 dist/crds/registry-node-agent.yaml:
 	@mkdir -p $(@D)
@@ -190,7 +188,7 @@ run: manifests generate fmt vet ## Run a controller from your host.
 # More info: https://docs.docker.com/develop/develop-images/build_enhancements/
 .PHONY: docker-build
 docker-build: download-manifests ## Build docker image with the manager.
-	$(CONTAINER_TOOL) build --secret id=GIT_AUTH_TOKEN -t ${IMG} .
+	$(CONTAINER_TOOL) build -t ${IMG} .
 
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
