@@ -457,6 +457,15 @@ func (cpt componentSts) setPodTemplateAnnotation(mTLSCAsHash string) {
 	cpt.sts.Spec.Template.Annotations[MTLS_CA_HASH_ANNOTATION_KEY] = mTLSCAsHash
 }
 
+// isStatefulSetTerminating reports whether the StatefulSet exists and is being deleted
+func (r *RegistryReconciler) isStatefulSetTerminating(ctx context.Context, name string, namespace string) (bool, error) {
+	sts := &appsv1.StatefulSet{}
+	if err := r.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, sts); err != nil {
+		return false, client.IgnoreNotFound(err)
+	}
+	return !sts.DeletionTimestamp.IsZero(), nil
+}
+
 /*
 	Beyond this point, the functions are specific to one Registry Node Agent instance on a Node:
 */
@@ -464,25 +473,19 @@ func (cpt componentSts) setPodTemplateAnnotation(mTLSCAsHash string) {
 // ReconcileRNAStatefulSet reconciles a Registry Node Agent as a StatefulSet on the specified node
 func (r *RegistryReconciler) ReconcileRNAStatefulSet(ctx context.Context, registryNamespace string, nodeName string, mTLSCAsHash string, registry *metalk8sv1alpha1.Registry) error {
 	nodeToken := safeNodeName(nodeName)
-	registryNodeAgentStatefulSet := componentSts{r.RNA.StatefulSets[0].DeepCopy()}
+	stsName := fmt.Sprintf("%s-%s", RNA_STATEFULSET_PREFIX, nodeToken)
 
-	// Check for existing StatefulSet on the node
-	registryNodeAgentStatefulSets := &appsv1.StatefulSetList{}
-	err := r.List(ctx, registryNodeAgentStatefulSets,
-		client.InNamespace(registryNamespace),
-		client.MatchingLabels(map[string]string{REG_APP_LABEL_KEY: RNA_APP_LABEL_VALUE, NODE_LABEL_KEY: nodeName}),
-	)
-	if err != nil {
+	// A StatefulSet under deletion must not be applied again: applying it without
+	// our finalizer would remove it before NodeSolutionArchives are cleaned up.
+	if terminating, err := r.isStatefulSetTerminating(ctx, stsName, registryNamespace); err != nil || terminating {
 		return err
 	}
-	if len(registryNodeAgentStatefulSets.Items) > 0 {
-		sts := &registryNodeAgentStatefulSets.Items[0]
-		utils.CleanResource(sts)
-		registryNodeAgentStatefulSet = componentSts{sts}
-	}
+
+	// Always start from the embedded manifest so that template changes reach existing StatefulSets
+	registryNodeAgentStatefulSet := componentSts{r.RNA.StatefulSets[0].DeepCopy()}
 
 	// Set metadata on StatefulSet
-	registryNodeAgentStatefulSet.sts.SetName(fmt.Sprintf("%s-%s", RNA_STATEFULSET_PREFIX, nodeToken))
+	registryNodeAgentStatefulSet.sts.SetName(stsName)
 	registryNodeAgentStatefulSet.sts.SetNamespace(registryNamespace)
 	registryNodeAgentStatefulSet.sts.Labels[NODE_LABEL_KEY] = nodeName
 	if err := controllerutil.SetControllerReference(registry, registryNodeAgentStatefulSet.sts, r.Scheme); err != nil {
@@ -520,15 +523,7 @@ func (r *RegistryReconciler) ReconcileRNAStatefulSet(ctx context.Context, regist
 	// Set Environment Variables (DOWNLOAD_HOST, LOGLEVEL)
 	registryNodeAgentStatefulSet.setRNAEnvVariables(nodeName, registryNamespace, registry)
 
-	// examine DeletionTimestamp to determine if object is under deletion
-	if registryNodeAgentStatefulSet.sts.DeletionTimestamp.IsZero() {
-		// The object is not being deleted, so if it does not have our finalizer,
-		// then let's add the finalizer and update the object. This is equivalent
-		// to registering our finalizer.
-		if !controllerutil.ContainsFinalizer(registryNodeAgentStatefulSet.sts, FINALIZER_NAME) {
-			controllerutil.AddFinalizer(registryNodeAgentStatefulSet.sts, FINALIZER_NAME)
-		}
-	}
+	controllerutil.AddFinalizer(registryNodeAgentStatefulSet.sts, FINALIZER_NAME)
 
 	return r.Patch(ctx, registryNodeAgentStatefulSet.sts, utils.ApplyPatch, client.ForceOwnership, client.FieldOwner(SSA_FIELD_OWNER_NAME))
 }
@@ -800,25 +795,17 @@ func (cpt componentSts) setRNAEnvVariables(nodeName string, registryNamespace st
 // ReconcileRSStatefulSet reconciles a Registry Server as a StatefulSet on the specified node
 func (r *RegistryReconciler) ReconcileRSStatefulSet(ctx context.Context, registryNamespace string, nodeName string, nodeIP string, registry *metalk8sv1alpha1.Registry) error {
 	nodeToken := safeNodeName(nodeName)
-	registryServerStatefulSet := componentSts{r.RS.StatefulSets[0].DeepCopy()}
+	stsName := fmt.Sprintf("%s-%s", RS_STATEFULSET_PREFIX, nodeToken)
 
-	// Check for existing StatefulSet on the node
-	registryServerStatefulSets := &appsv1.StatefulSetList{}
-	err := r.List(ctx, registryServerStatefulSets,
-		client.InNamespace(registryNamespace),
-		client.MatchingLabels(map[string]string{REG_APP_LABEL_KEY: RS_APP_LABEL_VALUE, NODE_LABEL_KEY: nodeName}),
-	)
-	if err != nil {
+	// A StatefulSet under deletion must not be applied again
+	if terminating, err := r.isStatefulSetTerminating(ctx, stsName, registryNamespace); err != nil || terminating {
 		return err
 	}
-	if len(registryServerStatefulSets.Items) > 0 {
-		sts := &registryServerStatefulSets.Items[0]
-		utils.CleanResource(sts)
-		registryServerStatefulSet = componentSts{sts}
-	}
+
+	registryServerStatefulSet := componentSts{r.RS.StatefulSets[0].DeepCopy()}
 
 	// Set metadata on StatefulSet
-	registryServerStatefulSet.sts.SetName(fmt.Sprintf("%s-%s", RS_STATEFULSET_PREFIX, nodeToken))
+	registryServerStatefulSet.sts.SetName(stsName)
 	registryServerStatefulSet.sts.SetNamespace(registryNamespace)
 	registryServerStatefulSet.sts.Labels[NODE_LABEL_KEY] = nodeName
 	if err := controllerutil.SetControllerReference(registry, registryServerStatefulSet.sts, r.Scheme); err != nil {

@@ -1716,6 +1716,19 @@ var _ = Describe("Registry Controller", func() {
 				)
 			}, timeout, interval).Should(Succeed())
 
+			By("checking a drifted node agent StatefulSet is restored from the base manifest")
+			expectedArgs := rnaSts.Spec.Template.Spec.Containers[0].Args
+			Expect(expectedArgs).NotTo(BeEmpty())
+			rnaSts.Spec.Template.Spec.Containers[0].Args = expectedArgs[:len(expectedArgs)-1]
+			Expect(k8sClient.Update(ctx, rnaSts)).To(Succeed())
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{
+					Name:      "metalk8s-registry-node-agent-mtls-hash-node",
+					Namespace: namespace,
+				}, rnaSts)).To(Succeed())
+				g.Expect(rnaSts.Spec.Template.Spec.Containers[0].Args).To(Equal(expectedArgs))
+			}, timeout, interval).Should(Succeed())
+
 			By("checking the copied external client CA secret shares the same hash annotation")
 			externalClientCASecret := &corev1.Secret{}
 			Expect(k8sClient.Get(ctx, types.NamespacedName{
