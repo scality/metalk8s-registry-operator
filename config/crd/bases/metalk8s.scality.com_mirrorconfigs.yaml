@@ -11,6 +11,8 @@ spec:
     kind: MirrorConfig
     listKind: MirrorConfigList
     plural: mirrorconfigs
+    shortNames:
+    - mco
     singular: mirrorconfig
   scope: Namespaced
   versions:

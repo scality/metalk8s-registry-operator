@@ -206,7 +206,7 @@ type RegistryStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:scope=Cluster
+// +kubebuilder:resource:scope=Cluster,shortName=reg
 
 // +kubebuilder:printcolumn:name="Available",type="boolean",JSONPath=".status.available",priority=1
 // +kubebuilder:printcolumn:name="Ready",type="boolean",JSONPath=".status.ready"

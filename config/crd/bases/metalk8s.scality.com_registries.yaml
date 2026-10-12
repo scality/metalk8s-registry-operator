@@ -11,6 +11,8 @@ spec:
     kind: Registry
     listKind: RegistryList
     plural: registries
+    shortNames:
+    - reg
     singular: registry
   scope: Cluster
   versions:
