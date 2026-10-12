@@ -51,9 +51,6 @@ func NewRegistrySpec() metalk8sv1alpha1.RegistrySpec {
 		Kind:  "Issuer",
 		Group: "cert-manager.io",
 	}
-	pullSecrets := []corev1.LocalObjectReference{
-		{Name: RegistryPullSecretName},
-	}
 	return metalk8sv1alpha1.RegistrySpec{
 		LogLevel:  ptr.To("info"),
 		Namespace: ptr.To(RegistryNamespace),
@@ -62,15 +59,9 @@ func NewRegistrySpec() metalk8sv1alpha1.RegistrySpec {
 		},
 		Server: metalk8sv1alpha1.RegistryServerSpec{
 			CertificateIssuerRef: issuerRef,
-			Image: &metalk8sv1alpha1.ImageSpec{
-				PullSecrets: pullSecrets,
-			},
 		},
 		Agent: metalk8sv1alpha1.RegistryNodeAgentSpec{
 			CertificateIssuerRef: issuerRef,
-			Image: &metalk8sv1alpha1.ImageSpec{
-				PullSecrets: pullSecrets,
-			},
 			Authentication: metalk8sv1alpha1.AuthenticationSpec{
 				MTLS: metalk8sv1alpha1.MTLSAuthenticationSpec{
 					CASecretRef: corev1.SecretReference{
