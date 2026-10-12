@@ -12,7 +12,7 @@ This is a **Go Kubernetes operator** that manages registry infrastructure for di
 
 ## Tech stack
 
-- Go 1.25 with controller-runtime (kubebuilder-style operator)
+- Go 1.27 with controller-runtime (kubebuilder-style operator)
 - cert-manager integration for TLS/mTLS
 - Ginkgo v2 + Gomega for testing
 - golangci-lint v2 for linting (strict config in `.golangci.yml`)
