@@ -56,7 +56,6 @@ jobs:
         uses: ./.github/actions/deploy
         with:
             manifest: ${{ steps.build-installer.outputs.installer }}
-            pull_secret: ${{ secrets.GIT_ACCESS_TOKEN }}
 
       - name: Running Test e2e
         if: ${{ !inputs.full_suite }}

@@ -47,14 +47,6 @@ const (
 	// .spec.{server,agent}.certificateIssuerRef fields.
 	IssuerName = "e2e-ca-issuer"
 
-	// RegistryPullSecretName is the name of the Docker-config-JSON Secret
-	// in RegistryNamespace used to pull the RNA + Server images from
-	// private registries (typically ghcr.io/scality/...). The deploy CI
-	// job creates this Secret alongside the operator; NewRegistrySpec
-	// wires it into .spec.{agent,server}.image.pullSecrets so the
-	// operator's rendered StatefulSets pick it up.
-	RegistryPullSecretName = "registry-pull-secret"
-
 	// RegistryServerServiceName is the ClusterIP Service in the registry
 	// namespace that fronts the static-oci-registry pods.
 	RegistryServerServiceName = "metalk8s-registry-server"
