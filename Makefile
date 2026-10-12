@@ -139,22 +139,26 @@ dist/registry-node-agent.yaml:
 
 dist/crds/registry-node-agent.yaml:
 	@mkdir -p $(@D)
+	go mod download github.com/scality/metalk8s-registry-node-agent
 	NODE_AGENT_PATH=$$(go list -m -f '{{.Dir}}' github.com/scality/metalk8s-registry-node-agent) && \
 	cp "$$NODE_AGENT_PATH/config/crd/bases/metalk8s.scality.com_nodesolutionarchives.yaml" $@
 
 # Cert-manager CRDs are required for tests (Registry controller watches Certificate/Issuer).
 dist/crds/cert-manager-certificates.yaml:
 	@mkdir -p $(@D)
+	go mod download github.com/cert-manager/cert-manager
 	CERT_MANAGER_PATH=$$(go list -m -f '{{.Dir}}' github.com/cert-manager/cert-manager) && \
 	cp "$$CERT_MANAGER_PATH/deploy/crds/cert-manager.io_certificates.yaml" $@
 
 dist/crds/cert-manager-issuers.yaml:
 	@mkdir -p $(@D)
+	go mod download github.com/cert-manager/cert-manager
 	CERT_MANAGER_PATH=$$(go list -m -f '{{.Dir}}' github.com/cert-manager/cert-manager) && \
 	cp "$$CERT_MANAGER_PATH/deploy/crds/cert-manager.io_issuers.yaml" $@
 
 dist/crds/cert-manager-clusterissuers.yaml:
 	@mkdir -p $(@D)
+	go mod download github.com/cert-manager/cert-manager
 	CERT_MANAGER_PATH=$$(go list -m -f '{{.Dir}}' github.com/cert-manager/cert-manager) && \
 	cp "$$CERT_MANAGER_PATH/deploy/crds/cert-manager.io_clusterissuers.yaml" $@
 
