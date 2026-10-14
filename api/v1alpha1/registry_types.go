@@ -33,7 +33,7 @@ const (
 	RegistryNodeAgentImageRegistry = "ghcr.io/scality"
 	RegistryNodeAgentImageName     = "metalk8s-registry-node-agent"
 	// renovate: datasource=github-releases depName=scality/metalk8s-registry-node-agent versioning=semver
-	RegistryNodeAgentImageTag  = "v0.0.1-alpha.11"
+	RegistryNodeAgentImageTag  = "v0.0.1-alpha.14"
 	FileReflectorImageRegistry = "ghcr.io/scality"
 	FileReflectorImageName     = "file-reflector"
 	// renovate: datasource=github-releases depName=scality/file-reflector versioning=semver
