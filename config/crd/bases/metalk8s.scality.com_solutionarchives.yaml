@@ -11,6 +11,8 @@ spec:
     kind: SolutionArchive
     listKind: SolutionArchiveList
     plural: solutionarchives
+    shortNames:
+    - soa
     singular: solutionarchive
   scope: Cluster
   versions:

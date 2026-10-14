@@ -53,6 +53,7 @@ type MirrorConfigStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:resource:shortName=mco
 
 // MirrorConfig is the Schema for the mirrorconfigs API.
 type MirrorConfig struct {
