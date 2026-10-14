@@ -28,15 +28,15 @@ import (
 const (
 	RegistryServerImageRegistry = "ghcr.io/scality"
 	RegistryServerImageName     = "static-oci-registry"
-	// renovate: datasource=github-releases depName=scality/static-oci-registry
+	// renovate: datasource=github-releases depName=scality/static-oci-registry versioning=semver
 	RegistryServerImageTag         = "v0.1.0-beta.2"
 	RegistryNodeAgentImageRegistry = "ghcr.io/scality"
 	RegistryNodeAgentImageName     = "metalk8s-registry-node-agent"
-	// renovate: datasource=github-releases depName=scality/metalk8s-registry-node-agent
+	// renovate: datasource=github-releases depName=scality/metalk8s-registry-node-agent versioning=semver
 	RegistryNodeAgentImageTag  = "v0.0.1-alpha.11"
 	FileReflectorImageRegistry = "ghcr.io/scality"
 	FileReflectorImageName     = "file-reflector"
-	// renovate: datasource=github-releases depName=scality/file-reflector
+	// renovate: datasource=github-releases depName=scality/file-reflector versioning=semver
 	FileReflectorImageTag          = "v0.2.0"
 	DEFAULT_NAMESPACE              = "metalk8s-registry"
 	DEFAULT_ARCHIVES_PATH          = "/srv/scality/metalk8s/archives"
