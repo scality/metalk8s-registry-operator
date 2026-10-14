@@ -29,7 +29,7 @@ const (
 	RegistryServerImageRegistry = "ghcr.io/scality"
 	RegistryServerImageName     = "static-oci-registry"
 	// renovate: datasource=github-releases depName=scality/static-oci-registry versioning=semver
-	RegistryServerImageTag         = "v0.1.0-beta.2"
+	RegistryServerImageTag         = "v0.1.0-beta.4"
 	RegistryNodeAgentImageRegistry = "ghcr.io/scality"
 	RegistryNodeAgentImageName     = "metalk8s-registry-node-agent"
 	// renovate: datasource=github-releases depName=scality/metalk8s-registry-node-agent versioning=semver
