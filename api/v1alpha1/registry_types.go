@@ -146,6 +146,9 @@ type RegistrySpec struct {
 	// Tolerations for the Registry Node Agent and Registry Server pods.
 	// +kubebuilder:validation:Optional
 	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
+	// PriorityClassName for the Registry Node Agent and Registry Server pods.
+	// +kubebuilder:validation:Optional
+	PriorityClassName *string `json:"priorityClassName,omitempty"`
 	// Server is the specification of the registry server.
 	Server RegistryServerSpec `json:"server"`
 	// Agent is the specification of the registry node agent.

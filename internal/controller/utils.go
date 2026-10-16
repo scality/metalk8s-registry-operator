@@ -503,6 +503,11 @@ func (r *RegistryReconciler) ReconcileRNAStatefulSet(ctx context.Context, regist
 		registryNodeAgentStatefulSet.sts.Spec.Template.Spec.Tolerations = registry.Spec.Tolerations
 	}
 
+	// Set PriorityClassName, if defined
+	if registry.Spec.PriorityClassName != nil {
+		registryNodeAgentStatefulSet.sts.Spec.Template.Spec.PriorityClassName = *registry.Spec.PriorityClassName
+	}
+
 	// Set Registry/Image:Tag
 	registryNodeAgentStatefulSet.setRNAImageTag(registry)
 
@@ -826,6 +831,11 @@ func (r *RegistryReconciler) ReconcileRSStatefulSet(ctx context.Context, registr
 	// Set Tolerations, if defined
 	if registry.Spec.Tolerations != nil {
 		registryServerStatefulSet.sts.Spec.Template.Spec.Tolerations = registry.Spec.Tolerations
+	}
+
+	// Set PriorityClassName, if defined
+	if registry.Spec.PriorityClassName != nil {
+		registryServerStatefulSet.sts.Spec.Template.Spec.PriorityClassName = *registry.Spec.PriorityClassName
 	}
 
 	// Set Registry/Image:Tag

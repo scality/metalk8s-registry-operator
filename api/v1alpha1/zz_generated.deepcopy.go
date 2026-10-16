@@ -439,6 +439,11 @@ func (in *RegistrySpec) DeepCopyInto(out *RegistrySpec) {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
+	if in.PriorityClassName != nil {
+		in, out := &in.PriorityClassName, &out.PriorityClassName
+		*out = new(string)
+		**out = **in
+	}
 	in.Server.DeepCopyInto(&out.Server)
 	in.Agent.DeepCopyInto(&out.Agent)
 	if in.MirrorPropagation != nil {

@@ -74,6 +74,7 @@ The spec includes:
 | `spec.logLevel` | Log level |
 | `spec.nodeSelector` | Node selector for scheduling registry node agents |
 | `spec.tolerations` | Tolerations for the registry node agent and registry server pods |
+| `spec.priorityClassName` | PriorityClass for the registry node agent and registry server pods |
 | `spec.server` | Registry server image and TLS certificate issuer reference |
 | `spec.agent` | Registry node agent image, TLS issuer, and mTLS authentication (CA secret ref) |
 | `spec.mirrorPropagation` | Containerd mirror config propagation: mirror ConfigMap generation and its sync DaemonSet. Fields: `enabled` (default true), `image` (file-reflector), `containerdConfigPath` (default `/etc/containerd/certs.d`), `nodeSelector`, `tolerations`, `ignorePaths` |

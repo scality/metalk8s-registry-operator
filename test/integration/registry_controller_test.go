@@ -1651,8 +1651,8 @@ var _ = Describe("Registry Controller", func() {
 		})
 	})
 
-	Context("When reconciling a registry with tolerations", func() {
-		It("propagates the tolerations to the per-node StatefulSets", func() {
+	Context("When reconciling a registry with tolerations and a priority class", func() {
+		It("propagates the tolerations and the priority class to the per-node StatefulSets", func() {
 			resourceName := "test-tolerations"
 			namespace := "namespace-tolerations"
 			nodeName := "node-tolerations"
@@ -1672,16 +1672,17 @@ var _ = Describe("Registry Controller", func() {
 			Expect(k8sClient.Status().Update(ctx, node)).To(Succeed())
 			DeferCleanup(func() { _ = k8sClient.Delete(ctx, node) })
 
-			By("creating the Registry with tolerations")
+			By("creating the Registry with tolerations and a priority class")
 			resource := &metalk8sv1alpha1.Registry{ObjectMeta: metav1.ObjectMeta{Name: resourceName}}
 			_, err := controllerutil.CreateOrUpdate(ctx, k8sClient, resource, func() error {
 				resource.Spec = metalk8sv1alpha1.RegistrySpec{
-					LogLevel:      ptr.To("info"),
-					ArchivesPath:  ptr.To("/srv/scality/metalk8s/archives"),
-					SolutionsPath: ptr.To("/srv/scality/metalk8s/solutions"),
-					Namespace:     ptr.To(namespace),
-					NodeSelector:  map[string]string{"registry": "tolerations"},
-					Tolerations:   tolerations,
+					LogLevel:          ptr.To("info"),
+					ArchivesPath:      ptr.To("/srv/scality/metalk8s/archives"),
+					SolutionsPath:     ptr.To("/srv/scality/metalk8s/solutions"),
+					Namespace:         ptr.To(namespace),
+					NodeSelector:      map[string]string{"registry": "tolerations"},
+					Tolerations:       tolerations,
+					PriorityClassName: ptr.To("registry-critical"),
 					Server: metalk8sv1alpha1.RegistryServerSpec{
 						CertificateIssuerRef: cmmetav1.ObjectReference{
 							Name: "registry-server-issuer",
@@ -1704,7 +1705,7 @@ var _ = Describe("Registry Controller", func() {
 			Expect(err).NotTo(HaveOccurred())
 			DeferCleanup(func() { deleteResource(ctx, k8sClient, resource) })
 
-			By("checking both StatefulSets carry the tolerations")
+			By("checking both StatefulSets carry the tolerations and the priority class")
 			Eventually(func(g Gomega) {
 				stsList := &appsv1.StatefulSetList{}
 				g.Expect(k8sClient.List(ctx, stsList,
@@ -1714,14 +1715,16 @@ var _ = Describe("Registry Controller", func() {
 				g.Expect(stsList.Items).To(HaveLen(2))
 				for _, sts := range stsList.Items {
 					g.Expect(sts.Spec.Template.Spec.Tolerations).To(Equal(tolerations))
+					g.Expect(sts.Spec.Template.Spec.PriorityClassName).To(Equal("registry-critical"))
 				}
 			}, timeout, interval).Should(Succeed())
 
-			By("clearing the tolerations drops them from both StatefulSets")
+			By("clearing the tolerations and the priority class drops them from both StatefulSets")
 			Eventually(func(g Gomega) {
 				updated := &metalk8sv1alpha1.Registry{}
 				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: resourceName}, updated)).To(Succeed())
 				updated.Spec.Tolerations = nil
+				updated.Spec.PriorityClassName = nil
 				g.Expect(k8sClient.Update(ctx, updated)).To(Succeed())
 			}, timeout, interval).Should(Succeed())
 			Eventually(func(g Gomega) {
@@ -1733,6 +1736,7 @@ var _ = Describe("Registry Controller", func() {
 				g.Expect(stsList.Items).To(HaveLen(2))
 				for _, sts := range stsList.Items {
 					g.Expect(sts.Spec.Template.Spec.Tolerations).To(BeEmpty())
+					g.Expect(sts.Spec.Template.Spec.PriorityClassName).To(BeEmpty())
 				}
 			}, timeout, interval).Should(Succeed())
 		})
