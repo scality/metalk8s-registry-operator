@@ -498,6 +498,11 @@ func (r *RegistryReconciler) ReconcileRNAStatefulSet(ctx context.Context, regist
 	// Set affinity to the specified node to ensure the StatefulSet is scheduled on the specified node
 	registryNodeAgentStatefulSet.setAffinity(nodeName)
 
+	// Set Tolerations, if defined
+	if registry.Spec.Tolerations != nil {
+		registryNodeAgentStatefulSet.sts.Spec.Template.Spec.Tolerations = registry.Spec.Tolerations
+	}
+
 	// Set Registry/Image:Tag
 	registryNodeAgentStatefulSet.setRNAImageTag(registry)
 
@@ -817,6 +822,11 @@ func (r *RegistryReconciler) ReconcileRSStatefulSet(ctx context.Context, registr
 
 	// Set affinity to the specified node to ensure the StatefulSet is scheduled on the specified node
 	registryServerStatefulSet.setAffinity(nodeName)
+
+	// Set Tolerations, if defined
+	if registry.Spec.Tolerations != nil {
+		registryServerStatefulSet.sts.Spec.Template.Spec.Tolerations = registry.Spec.Tolerations
+	}
 
 	// Set Registry/Image:Tag
 	registryServerStatefulSet.setRSImageTag(registry)

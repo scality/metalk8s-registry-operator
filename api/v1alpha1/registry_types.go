@@ -143,6 +143,9 @@ type RegistrySpec struct {
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
 	// +mapType=atomic
 	NodeSelector map[string]string `json:"nodeSelector"`
+	// Tolerations for the Registry Node Agent and Registry Server pods.
+	// +kubebuilder:validation:Optional
+	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
 	// Server is the specification of the registry server.
 	Server RegistryServerSpec `json:"server"`
 	// Agent is the specification of the registry node agent.
