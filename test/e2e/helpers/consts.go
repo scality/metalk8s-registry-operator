@@ -47,6 +47,14 @@ const (
 	// .spec.{server,agent}.certificateIssuerRef fields.
 	IssuerName = "e2e-ca-issuer"
 
+	// RNAServiceMonitorName is the ServiceMonitor the operator deploys for
+	// the Registry Node Agent metrics when monitoring is enabled.
+	RNAServiceMonitorName = "metalk8s-registry-node-agent-controller-manager-metrics-monitor"
+
+	// PrometheusReleaseLabel is the `release` label value the e2e Prometheus
+	// (kube-prometheus-stack) requires on the ServiceMonitors it selects.
+	PrometheusReleaseLabel = "kube-prometheus-stack"
+
 	// RegistryServerServiceName is the ClusterIP Service in the registry
 	// namespace that fronts the static-oci-registry pods.
 	RegistryServerServiceName = "metalk8s-registry-server"
