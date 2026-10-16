@@ -1623,6 +1623,11 @@ var _ = Describe("Registry Controller", func() {
 				Expect(sts.Name).NotTo(ContainSubstring("."))
 			}
 
+			By("checking the per-node StatefulSets start their pods in parallel")
+			for _, sts := range stsList.Items {
+				Expect(sts.Spec.PodManagementPolicy).To(Equal(appsv1.ParallelPodManagement))
+			}
+
 			By("checking the per-node Service carries a valid shortened name")
 			serviceList := &corev1.ServiceList{}
 			Expect(k8sClient.List(ctx, serviceList,

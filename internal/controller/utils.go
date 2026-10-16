@@ -495,6 +495,10 @@ func (r *RegistryReconciler) ReconcileRNAStatefulSet(ctx context.Context, regist
 	// Modify replica to 1
 	registryNodeAgentStatefulSet.sts.Spec.Replicas = ptr.To(int32(1))
 
+	// Start pods in parallel
+	// default "OrderedReady" can make the rollout to be stuck, waiting for pods to be ready before starting the next one
+	registryNodeAgentStatefulSet.sts.Spec.PodManagementPolicy = appsv1.ParallelPodManagement
+
 	// Set affinity to the specified node to ensure the StatefulSet is scheduled on the specified node
 	registryNodeAgentStatefulSet.setAffinity(nodeName)
 
@@ -814,6 +818,10 @@ func (r *RegistryReconciler) ReconcileRSStatefulSet(ctx context.Context, registr
 
 	// Set replica to 1
 	registryServerStatefulSet.sts.Spec.Replicas = ptr.To(int32(1))
+
+	// Start pods in parallel
+	// default "OrderedReady" can make the rollout to be stuck, waiting for pods to be ready before starting the next one
+	registryServerStatefulSet.sts.Spec.PodManagementPolicy = appsv1.ParallelPodManagement
 
 	// Set affinity to the specified node to ensure the StatefulSet is scheduled on the specified node
 	registryServerStatefulSet.setAffinity(nodeName)
