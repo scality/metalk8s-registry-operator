@@ -17,7 +17,7 @@ runs:
         aws-region: eu-north-1
 
     - name: Destroy the cluster
-      uses: scality/platform-spawner@1addb49b14bd573beb4e22e8f35f1e1bc001f590 # v3.0.1
+      uses: scality/platform-spawner@6f95c510bbb37d4f0fae3f8d50f37eddb4a3a38b # v3.1.0
       with:
           action: destroy
           stack_name: "${{ github.workflow }}-${{ github.run_number }}"
