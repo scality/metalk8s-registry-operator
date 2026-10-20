@@ -7,6 +7,7 @@ import (
 
 	cmv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	"github.com/go-logr/logr"
+	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -30,6 +31,7 @@ type RegistryComponent struct {
 	ClusterRoleBindings             []*rbacv1.ClusterRoleBinding
 	Certificates                    []*cmv1.Certificate
 	ValidatingWebhookConfigurations []*admissionregistrationv1.ValidatingWebhookConfiguration
+	ServiceMonitors                 []*monitoringv1.ServiceMonitor
 	UnstructuredObjects             []*unstructured.Unstructured
 }
 
@@ -48,6 +50,7 @@ func NewRegistryComponent(ctx context.Context) *RegistryComponent {
 		ClusterRoleBindings:             make([]*rbacv1.ClusterRoleBinding, 0),
 		Certificates:                    make([]*cmv1.Certificate, 0),
 		ValidatingWebhookConfigurations: make([]*admissionregistrationv1.ValidatingWebhookConfiguration, 0),
+		ServiceMonitors:                 make([]*monitoringv1.ServiceMonitor, 0),
 		UnstructuredObjects:             make([]*unstructured.Unstructured, 0),
 	}
 }
@@ -93,6 +96,10 @@ func (r *RegistryComponent) LoadManifests(manifests []byte) error {
 		case "ValidatingWebhookConfiguration":
 			// The compiler infers T = admissionregistrationv1.ValidatingWebhookConfiguration
 			processResource(r, kind, obj, &r.ValidatingWebhookConfigurations)
+
+		case "ServiceMonitor":
+			// The compiler infers T = monitoringv1.ServiceMonitor
+			processResource(r, kind, obj, &r.ServiceMonitors)
 
 		case "StatefulSet":
 			// The compiler infers T = appsv1.StatefulSet
@@ -155,6 +162,7 @@ func (r *RegistryComponent) Flush() {
 	r.Roles = r.Roles[:0]
 	r.ClusterRoles = r.ClusterRoles[:0]
 	r.RoleBindings = r.RoleBindings[:0]
+	r.ServiceMonitors = r.ServiceMonitors[:0]
 	r.ClusterRoleBindings = r.ClusterRoleBindings[:0]
 	r.Certificates = r.Certificates[:0]
 }

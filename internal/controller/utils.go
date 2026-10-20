@@ -3,6 +3,7 @@ package controller
 import (
 	"fmt"
 	"hash/fnv"
+	"maps"
 	"slices"
 
 	"context"
@@ -11,6 +12,7 @@ import (
 
 	cmv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	cmmetav1 "github.com/cert-manager/cert-manager/pkg/apis/meta/v1"
+	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	metalk8sv1alpha1 "github.com/scality/metalk8s-registry-operator/api/v1alpha1"
 	"github.com/scality/metalk8s-registry-operator/internal/utils"
 	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
@@ -102,6 +104,7 @@ func (r *RegistryReconciler) ReconcileRNAGenericResources(ctx context.Context, r
 	   * ClusterRole
 	   * RoleBinding
 	   * ClusterRoleBinding
+	   * ServiceMonitor
 	   * UnstructuredObjects
 	*/
 	log := logf.FromContext(ctx)
@@ -224,6 +227,10 @@ func (r *RegistryReconciler) ReconcileRNAGenericResources(ctx context.Context, r
 		utils.CleanResource(clusterRoleBinding)
 	}
 
+	if err = r.reconcileRNAServiceMonitors(ctx, registry); err != nil {
+		return err
+	}
+
 	for _, obj := range r.RNA.UnstructuredObjects {
 		obj.SetNamespace(*registry.Spec.Namespace)
 		if err := controllerutil.SetControllerReference(registry, obj, r.Scheme); err != nil {
@@ -240,6 +247,58 @@ func (r *RegistryReconciler) ReconcileRNAGenericResources(ctx context.Context, r
 		utils.CleanResource(obj)
 	}
 
+	return nil
+}
+
+// reconcileRNAServiceMonitors applies the Registry Node Agent ServiceMonitors when monitoring is enabled
+// and the ServiceMonitor CRD is established, and deletes them when monitoring is disabled
+func (r *RegistryReconciler) reconcileRNAServiceMonitors(ctx context.Context, registry *metalk8sv1alpha1.Registry) error {
+	log := logf.FromContext(ctx)
+
+	watched, err := r.ensureServiceMonitorWatch(ctx)
+	if err != nil {
+		return err
+	}
+	if !watched {
+		if registry.IsMonitoringEnabled() && len(r.RNA.ServiceMonitors) > 0 {
+			log.V(1).Info("ServiceMonitor CRD not established, skipping ServiceMonitors")
+		}
+		return nil
+	}
+
+	if !registry.IsMonitoringEnabled() {
+		for _, serviceMonitor := range r.RNA.ServiceMonitors {
+			obj := &monitoringv1.ServiceMonitor{ObjectMeta: metav1.ObjectMeta{
+				Name:      serviceMonitor.Name,
+				Namespace: *registry.Spec.Namespace,
+			}}
+			if err := client.IgnoreNotFound(r.Delete(ctx, obj)); err != nil {
+				log.V(1).Info("error deleting ServiceMonitor", "name", serviceMonitor.Name)
+				return err
+			}
+		}
+		return nil
+	}
+
+	for _, manifest := range r.RNA.ServiceMonitors {
+		serviceMonitor := manifest.DeepCopy()
+		serviceMonitor.SetNamespace(*registry.Spec.Namespace)
+		labels := serviceMonitor.GetLabels()
+		if labels == nil {
+			labels = map[string]string{}
+		}
+		maps.Copy(labels, registry.Spec.Monitoring.PrometheusLabels)
+		serviceMonitor.SetLabels(labels)
+		if err := controllerutil.SetControllerReference(registry, serviceMonitor, r.Scheme); err != nil {
+			log.V(1).Info("error setting controller reference for ServiceMonitor", "name", serviceMonitor.Name)
+			return err
+		}
+		err := r.Patch(ctx, serviceMonitor, utils.ApplyPatch, client.ForceOwnership, client.FieldOwner(SSA_FIELD_OWNER_NAME))
+		if err != nil {
+			log.V(1).Info("error patching ServiceMonitor", "name", serviceMonitor.Name)
+			return err
+		}
+	}
 	return nil
 }
 
@@ -352,6 +411,7 @@ func (r *RegistryReconciler) ChangeNamespace(ctx context.Context, namespace stri
 	   * ValidatingWebhookConfiguration
 	   * RoleBinding
 	   * ClusterRoleBinding
+	   * ServiceMonitor
 	*/
 	r.RNA.Namespaces[0].Name = namespace
 
@@ -419,6 +479,24 @@ func (r *RegistryReconciler) ChangeNamespace(ctx context.Context, namespace stri
 			subjects = append(subjects, subject)
 		}
 		clusterRoleBinding.Subjects = subjects
+	}
+
+	for _, serviceMonitor := range r.RNA.ServiceMonitors {
+		endpoints := make([]monitoringv1.Endpoint, 0, len(serviceMonitor.Spec.Endpoints))
+		// Change namespace in TLS server name
+		for _, endpoint := range serviceMonitor.Spec.Endpoints {
+			if endpoint.TLSConfig != nil && endpoint.TLSConfig.ServerName != nil {
+				serverName := strings.Replace(
+					*endpoint.TLSConfig.ServerName,
+					fmt.Sprintf(".%s.svc", metalk8sv1alpha1.DEFAULT_NAMESPACE),
+					fmt.Sprintf(".%s.svc", namespace),
+					1,
+				)
+				endpoint.TLSConfig.ServerName = &serverName
+			}
+			endpoints = append(endpoints, endpoint)
+		}
+		serviceMonitor.Spec.Endpoints = endpoints
 	}
 }
 

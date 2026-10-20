@@ -12,11 +12,11 @@
 #   - Workers are node-2 .. node-N
 #   - Control-plane network is 172.30.100.0/24
 #
-# Container runtime, CNI and cert-manager versions are pinned at the tags
-# defined near the top of this script (CONTAINERD_TAG, RUNC_TAG,
-# FLANNEL_TAG, CERT_MANAGER_TAG); bump those tags to move the cluster
-# forward. The resolved versions are logged so a CI run's cluster
-# provenance stays visible in the workflow log.
+# Container runtime, CNI, cert-manager and kube-prometheus-stack versions are
+# pinned at the tags defined near the top of this script (CONTAINERD_TAG,
+# RUNC_TAG, FLANNEL_TAG, CERT_MANAGER_TAG, KUBE_PROMETHEUS_STACK_TAG); bump
+# those tags to move the cluster forward. The resolved versions are logged so
+# a CI run's cluster provenance stays visible in the workflow log.
 
 set -euo pipefail
 
@@ -61,12 +61,14 @@ CONTAINERD_TAG="v2.3.2"
 RUNC_TAG="v1.5.0"
 FLANNEL_TAG="v0.27.4"
 CERT_MANAGER_TAG="v1.20.2"
+KUBE_PROMETHEUS_STACK_TAG="92.1.0"
 
 echo "==> Component versions"
 echo "    containerd:   ${CONTAINERD_TAG}"
 echo "    runc:         ${RUNC_TAG}"
 echo "    flannel:      ${FLANNEL_TAG}"
 echo "    cert-manager: ${CERT_MANAGER_TAG}"
+echo "    kube-prometheus-stack: ${KUBE_PROMETHEUS_STACK_TAG}"
 echo "    kubernetes:   ${KUBE_VERSION} (repo minor ${KUBE_MINOR})"
 
 CONTAINERD_VER="${CONTAINERD_TAG#v}"
@@ -270,5 +272,18 @@ kubectl apply -f "https://github.com/cert-manager/cert-manager/releases/download
 kubectl -n cert-manager rollout status deploy/cert-manager --timeout=5m
 kubectl -n cert-manager rollout status deploy/cert-manager-webhook --timeout=5m
 kubectl -n cert-manager rollout status deploy/cert-manager-cainjector --timeout=5m
+
+# --------------------------------------------------------------------------
+# Deploy kube-prometheus-stack and wait for it to be ready.
+# --------------------------------------------------------------------------
+echo "==> Deploying kube-prometheus-stack ${KUBE_PROMETHEUS_STACK_TAG}"
+# Prometheus only selects ServiceMonitors labelled release=kube-prometheus-stack.
+helm upgrade --install kube-prometheus-stack \
+  oci://ghcr.io/prometheus-community/charts/kube-prometheus-stack \
+  --version "${KUBE_PROMETHEUS_STACK_TAG}" \
+  --namespace monitoring --create-namespace \
+  --set grafana.enabled=false \
+  --set alertmanager.enabled=false \
+  --wait --timeout 10m
 
 echo "==> Cluster ready"
