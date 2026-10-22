@@ -3,7 +3,7 @@ FROM mcr.microsoft.com/devcontainers/go:1.27-trixie@sha256:06ae646a1f1ec51551e5a
 USER vscode
 
 # renovate: datasource=github-releases depName=operator-framework/operator-sdk extractVersion=^v(?<version>.*)$
-ARG OPERATOR_SDK_VERSION=1.41.1
+ARG OPERATOR_SDK_VERSION=1.42.3
 
 RUN curl -sSfLO https://github.com/operator-framework/operator-sdk/releases/download/v${OPERATOR_SDK_VERSION}/operator-sdk_linux_amd64 && \
     chmod +x operator-sdk_linux_amd64 && \
