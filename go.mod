@@ -6,7 +6,7 @@ require (
 	github.com/cert-manager/cert-manager v1.19.2
 	github.com/go-logr/logr v1.4.4
 	github.com/hashicorp/go-version v1.9.0
-	github.com/onsi/ginkgo/v2 v2.33.0
+	github.com/onsi/ginkgo/v2 v2.33.1
 	github.com/onsi/gomega v1.44.0
 	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.94.1
 	github.com/scality/metalk8s-registry-node-agent v0.0.1-alpha.14
