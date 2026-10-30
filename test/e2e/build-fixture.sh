@@ -11,9 +11,9 @@
 #
 # The `<out-dir>` becomes one leaf of an ISO tree consumed by
 # scality/static-oci-registry (deployed as metalk8s-registry-server): the
-# tree paths *are* the pullable image references (host + repository), so
-# callers pass a nested directory like
-# `dist/test-isos/build/small-single/e2e.metalk8s.scality.com/small-single`.
+# paths under the ISO's `images/` directory *are* the pullable image
+# references (host + repository), so callers pass a nested directory like
+# `dist/test-isos/build/small-single/images/e2e.metalk8s.scality.com/small-single`.
 #
 # Requires `docker` (build daemon) and `skopeo` on PATH.
 set -euo pipefail
