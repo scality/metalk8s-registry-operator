@@ -86,7 +86,7 @@ replacements:
 #         delimiter: '.'
 #         index: 0
 #         create: true
-#
+
 # - source:
 #     kind: Service
 #     version: v1

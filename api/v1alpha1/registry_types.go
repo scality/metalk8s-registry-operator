@@ -22,6 +22,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/ptr"
 )
 
@@ -129,7 +130,7 @@ type MirrorPropagationSpec struct {
 	IgnorePaths []string `json:"ignorePaths,omitempty"`
 }
 
-// RegistrySpec defines the desired state of Registry.
+// RegistrySpec defines the desired state of Registry
 type RegistrySpec struct {
 	// Log level for Registry Node Agent and Registry Server, defaults to "info"
 	// +kubebuilder:default=info
@@ -219,6 +220,9 @@ type RegistryStatus struct {
 	// including availability and readiness of the registry server and node agent.
 	StatusPerNode map[string]NodeStatus `json:"statusPerNode,omitempty"`
 	// Conditions of the registry.
+	// +listType=map
+	// +listMapKey=type
+	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
@@ -235,24 +239,35 @@ type RegistryStatus struct {
 // +kubebuilder:printcolumn:name="Selected Nodes",type="string",JSONPath=".status.selectedNodes",priority=1
 // Registry is the Schema for the registries API.
 type Registry struct {
-	metav1.TypeMeta   `json:",inline"`
-	metav1.ObjectMeta `json:"metadata,omitempty"`
+	metav1.TypeMeta `json:",inline"`
 
-	Spec   RegistrySpec   `json:"spec,omitempty"`
-	Status RegistryStatus `json:"status,omitempty"`
+	// metadata is a standard object metadata
+	// +optional
+	metav1.ObjectMeta `json:"metadata,omitzero"`
+
+	// spec defines the desired state of Registry
+	// +required
+	Spec RegistrySpec `json:"spec"`
+
+	// status defines the observed state of Registry
+	// +optional
+	Status RegistryStatus `json:"status,omitzero"`
 }
 
 // +kubebuilder:object:root=true
 
-// RegistryList contains a list of Registry.
+// RegistryList contains a list of Registry
 type RegistryList struct {
 	metav1.TypeMeta `json:",inline"`
-	metav1.ListMeta `json:"metadata,omitempty"`
+	metav1.ListMeta `json:"metadata,omitzero"`
 	Items           []Registry `json:"items"`
 }
 
 func init() {
-	SchemeBuilder.Register(&Registry{}, &RegistryList{})
+	SchemeBuilder.Register(func(s *runtime.Scheme) error {
+		s.AddKnownTypes(SchemeGroupVersion, &Registry{}, &RegistryList{})
+		return nil
+	})
 }
 
 func (registry *Registry) InitStatus() {
