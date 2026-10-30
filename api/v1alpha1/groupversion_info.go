@@ -26,33 +26,19 @@ import (
 )
 
 var (
-	// GroupVersion is group version used to register these objects.
-	GroupVersion = schema.GroupVersion{Group: "metalk8s.scality.com", Version: "v1alpha1"}
+	// SchemeGroupVersion is group version used to register these objects.
+	// This name is used by applyconfiguration generators (e.g. controller-gen).
+	SchemeGroupVersion = schema.GroupVersion{Group: "metalk8s.scality.com", Version: "v1alpha1"}
+
+	// GroupVersion is an alias for SchemeGroupVersion, for backward compatibility.
+	GroupVersion = SchemeGroupVersion
 
 	// SchemeBuilder is used to add go types to the GroupVersionKind scheme.
-	SchemeBuilder = &schemeBuilder{GroupVersion: GroupVersion}
+	SchemeBuilder = runtime.NewSchemeBuilder(func(scheme *runtime.Scheme) error {
+		metav1.AddToGroupVersion(scheme, SchemeGroupVersion)
+		return nil
+	})
 
 	// AddToScheme adds the types in this group-version to the given scheme.
 	AddToScheme = SchemeBuilder.AddToScheme
 )
-
-// schemeBuilder mirrors sigs.k8s.io/controller-runtime/pkg/scheme.Builder,
-// which is deprecated in controller-runtime v0.24 because api packages should
-// keep their imports minimal. Inlining preserves the SchemeBuilder.Register
-// call sites in the per-type init() blocks without pulling in the deprecated
-// package.
-type schemeBuilder struct {
-	GroupVersion schema.GroupVersion
-	runtime.SchemeBuilder
-}
-
-// Register adds one or more objects to the SchemeBuilder so they can be added
-// to a Scheme.
-func (b *schemeBuilder) Register(objects ...runtime.Object) *schemeBuilder {
-	b.SchemeBuilder.Register(func(scheme *runtime.Scheme) error {
-		scheme.AddKnownTypes(b.GroupVersion, objects...)
-		metav1.AddToGroupVersion(scheme, b.GroupVersion)
-		return nil
-	})
-	return b
-}
