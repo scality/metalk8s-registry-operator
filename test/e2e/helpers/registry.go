@@ -46,7 +46,7 @@ const DefaultRegistryName = "e2e-registry"
 // referenced by the operator's status computation are set so no field
 // defaulting from the mutating webhook is required.
 func NewRegistrySpec() metalk8sv1alpha1.RegistrySpec {
-	issuerRef := cmmetav1.ObjectReference{
+	issuerRef := cmmetav1.IssuerReference{
 		Name:  IssuerName,
 		Kind:  "Issuer",
 		Group: "cert-manager.io",

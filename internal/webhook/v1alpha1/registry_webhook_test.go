@@ -99,7 +99,7 @@ var _ = Describe("Registry Webhook", func() {
 					"node-role.kubernetes.io/registry": "",
 				},
 				Server: metalk8sv1alpha1.RegistryServerSpec{
-					CertificateIssuerRef: cmmetav1.ObjectReference{
+					CertificateIssuerRef: cmmetav1.IssuerReference{
 						Name: "registry-server-issuer",
 						Kind: "ClusterIssuer",
 					},
@@ -111,7 +111,7 @@ var _ = Describe("Registry Webhook", func() {
 					},
 				},
 				Agent: metalk8sv1alpha1.RegistryNodeAgentSpec{
-					CertificateIssuerRef: cmmetav1.ObjectReference{
+					CertificateIssuerRef: cmmetav1.IssuerReference{
 						Name: "registry-agent-issuer",
 						Kind: "Issuer",
 					},

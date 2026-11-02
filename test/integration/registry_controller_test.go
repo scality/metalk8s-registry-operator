@@ -124,7 +124,7 @@ var _ = Describe("Registry Controller", func() {
 						"registry": "test2",
 					},
 					Server: metalk8sv1alpha1.RegistryServerSpec{
-						CertificateIssuerRef: cmmetav1.ObjectReference{
+						CertificateIssuerRef: cmmetav1.IssuerReference{
 							Name: "registry-server-issuer",
 							Kind: "ClusterIssuer",
 						},
@@ -141,7 +141,7 @@ var _ = Describe("Registry Controller", func() {
 						},
 					},
 					Agent: metalk8sv1alpha1.RegistryNodeAgentSpec{
-						CertificateIssuerRef: cmmetav1.ObjectReference{},
+						CertificateIssuerRef: cmmetav1.IssuerReference{},
 						Authentication: metalk8sv1alpha1.AuthenticationSpec{
 							MTLS: metalk8sv1alpha1.MTLSAuthenticationSpec{
 								CASecretRef: corev1.SecretReference{
@@ -286,7 +286,7 @@ var _ = Describe("Registry Controller", func() {
 						"registry": "test3",
 					},
 					Server: metalk8sv1alpha1.RegistryServerSpec{
-						CertificateIssuerRef: cmmetav1.ObjectReference{
+						CertificateIssuerRef: cmmetav1.IssuerReference{
 							Name: "registry-server-issuer",
 							Kind: "ClusterIssuer",
 						},
@@ -298,7 +298,7 @@ var _ = Describe("Registry Controller", func() {
 						},
 					},
 					Agent: metalk8sv1alpha1.RegistryNodeAgentSpec{
-						CertificateIssuerRef: cmmetav1.ObjectReference{},
+						CertificateIssuerRef: cmmetav1.IssuerReference{},
 						Authentication: metalk8sv1alpha1.AuthenticationSpec{
 							MTLS: metalk8sv1alpha1.MTLSAuthenticationSpec{
 								CASecretRef: corev1.SecretReference{
@@ -690,7 +690,7 @@ var _ = Describe("Registry Controller", func() {
 						"registry": "test4",
 					},
 					Server: metalk8sv1alpha1.RegistryServerSpec{
-						CertificateIssuerRef: cmmetav1.ObjectReference{
+						CertificateIssuerRef: cmmetav1.IssuerReference{
 							Name: "registry-server-issuer",
 							Kind: "ClusterIssuer",
 						},
@@ -702,7 +702,7 @@ var _ = Describe("Registry Controller", func() {
 						},
 					},
 					Agent: metalk8sv1alpha1.RegistryNodeAgentSpec{
-						CertificateIssuerRef: cmmetav1.ObjectReference{},
+						CertificateIssuerRef: cmmetav1.IssuerReference{},
 						Authentication: metalk8sv1alpha1.AuthenticationSpec{
 							MTLS: metalk8sv1alpha1.MTLSAuthenticationSpec{
 								CASecretRef: corev1.SecretReference{
@@ -842,7 +842,7 @@ var _ = Describe("Registry Controller", func() {
 						"registry": "test5",
 					},
 					Server: metalk8sv1alpha1.RegistryServerSpec{
-						CertificateIssuerRef: cmmetav1.ObjectReference{
+						CertificateIssuerRef: cmmetav1.IssuerReference{
 							Name: "registry-server-issuer",
 							Kind: "ClusterIssuer",
 						},
@@ -854,7 +854,7 @@ var _ = Describe("Registry Controller", func() {
 						},
 					},
 					Agent: metalk8sv1alpha1.RegistryNodeAgentSpec{
-						CertificateIssuerRef: cmmetav1.ObjectReference{},
+						CertificateIssuerRef: cmmetav1.IssuerReference{},
 						Authentication: metalk8sv1alpha1.AuthenticationSpec{
 							MTLS: metalk8sv1alpha1.MTLSAuthenticationSpec{
 								CASecretRef: corev1.SecretReference{
@@ -1069,7 +1069,7 @@ var _ = Describe("Registry Controller", func() {
 						"registry": "test6",
 					},
 					Server: metalk8sv1alpha1.RegistryServerSpec{
-						CertificateIssuerRef: cmmetav1.ObjectReference{
+						CertificateIssuerRef: cmmetav1.IssuerReference{
 							Name: "registry-server-issuer",
 							Kind: "ClusterIssuer",
 						},
@@ -1081,7 +1081,7 @@ var _ = Describe("Registry Controller", func() {
 						},
 					},
 					Agent: metalk8sv1alpha1.RegistryNodeAgentSpec{
-						CertificateIssuerRef: cmmetav1.ObjectReference{},
+						CertificateIssuerRef: cmmetav1.IssuerReference{},
 						Authentication: metalk8sv1alpha1.AuthenticationSpec{
 							MTLS: metalk8sv1alpha1.MTLSAuthenticationSpec{
 								CASecretRef: corev1.SecretReference{
@@ -1272,7 +1272,7 @@ var _ = Describe("Registry Controller", func() {
 					Namespace:     ptr.To(namespace),
 					NodeSelector:  map[string]string{"registry": "mirror-ca"},
 					Server: metalk8sv1alpha1.RegistryServerSpec{
-						CertificateIssuerRef: cmmetav1.ObjectReference{
+						CertificateIssuerRef: cmmetav1.IssuerReference{
 							Name: "registry-server-issuer",
 							Kind: "ClusterIssuer",
 						},
@@ -1372,7 +1372,7 @@ var _ = Describe("Registry Controller", func() {
 					Namespace:     ptr.To(namespace),
 					NodeSelector:  map[string]string{"registry": "mirror-none"},
 					Server: metalk8sv1alpha1.RegistryServerSpec{
-						CertificateIssuerRef: cmmetav1.ObjectReference{
+						CertificateIssuerRef: cmmetav1.IssuerReference{
 							Name: "registry-server-issuer",
 							Kind: "ClusterIssuer",
 						},
@@ -1461,7 +1461,7 @@ var _ = Describe("Registry Controller", func() {
 						IgnorePaths: []string{"legacy.invalid", "other.invalid"},
 					},
 					Server: metalk8sv1alpha1.RegistryServerSpec{
-						CertificateIssuerRef: cmmetav1.ObjectReference{
+						CertificateIssuerRef: cmmetav1.IssuerReference{
 							Name: "registry-server-issuer",
 							Kind: "ClusterIssuer",
 						},
@@ -1583,7 +1583,7 @@ var _ = Describe("Registry Controller", func() {
 					Namespace:     ptr.To(namespace),
 					NodeSelector:  map[string]string{"registry": "fqdn-node"},
 					Server: metalk8sv1alpha1.RegistryServerSpec{
-						CertificateIssuerRef: cmmetav1.ObjectReference{
+						CertificateIssuerRef: cmmetav1.IssuerReference{
 							Name: "registry-server-issuer",
 							Kind: "ClusterIssuer",
 						},
@@ -1690,7 +1690,7 @@ var _ = Describe("Registry Controller", func() {
 					Tolerations:       tolerations,
 					PriorityClassName: ptr.To("registry-critical"),
 					Server: metalk8sv1alpha1.RegistryServerSpec{
-						CertificateIssuerRef: cmmetav1.ObjectReference{
+						CertificateIssuerRef: cmmetav1.IssuerReference{
 							Name: "registry-server-issuer",
 							Kind: "ClusterIssuer",
 						},
@@ -1771,7 +1771,7 @@ var _ = Describe("Registry Controller", func() {
 					Namespace:     ptr.To(namespace),
 					NodeSelector:  map[string]string{"registry": "mtls-ca-hash"},
 					Server: metalk8sv1alpha1.RegistryServerSpec{
-						CertificateIssuerRef: cmmetav1.ObjectReference{
+						CertificateIssuerRef: cmmetav1.IssuerReference{
 							Name: "registry-server-issuer",
 							Kind: "ClusterIssuer",
 						},
@@ -1893,7 +1893,7 @@ var _ = Describe("Registry Controller", func() {
 						Namespace:     ptr.To(namespace),
 						NodeSelector:  map[string]string{"registry": "mtls-ca-change"},
 						Server: metalk8sv1alpha1.RegistryServerSpec{
-							CertificateIssuerRef: cmmetav1.ObjectReference{
+							CertificateIssuerRef: cmmetav1.IssuerReference{
 								Name: "registry-server-issuer",
 								Kind: "ClusterIssuer",
 							},
@@ -2012,7 +2012,7 @@ var _ = Describe("Registry Controller", func() {
 						PrometheusLabels: map[string]string{"release": "kube-prometheus-stack"},
 					},
 					Server: metalk8sv1alpha1.RegistryServerSpec{
-						CertificateIssuerRef: cmmetav1.ObjectReference{
+						CertificateIssuerRef: cmmetav1.IssuerReference{
 							Name: "registry-server-issuer",
 							Kind: "ClusterIssuer",
 						},
@@ -2086,7 +2086,7 @@ var _ = Describe("Registry Controller", func() {
 					Namespace:     ptr.To("namespace-test-7"),
 					NodeSelector:  map[string]string{"registry": "service-monitor-disabled"},
 					Server: metalk8sv1alpha1.RegistryServerSpec{
-						CertificateIssuerRef: cmmetav1.ObjectReference{
+						CertificateIssuerRef: cmmetav1.IssuerReference{
 							Name: "registry-server-issuer",
 							Kind: "ClusterIssuer",
 						},

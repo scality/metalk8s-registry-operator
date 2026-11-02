@@ -102,7 +102,7 @@ var _ = Describe("MirrorConfig Controller", func() {
 					Namespace:     ptr.To(registryNamespace),
 					NodeSelector:  map[string]string{"registry": "mirrorconfig"},
 					Server: metalk8sv1alpha1.RegistryServerSpec{
-						CertificateIssuerRef: cmmetav1.ObjectReference{
+						CertificateIssuerRef: cmmetav1.IssuerReference{
 							Name: "registry-server-issuer",
 							Kind: "ClusterIssuer",
 						},

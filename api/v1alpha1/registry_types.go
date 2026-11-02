@@ -66,7 +66,7 @@ type ImageSpec struct {
 type RegistryServerSpec struct {
 	// CertificateIssuerRef is a reference to the cert-manager Issuer or ClusterIssuer
 	// that will generate the Certificate used by the registry server on its API endpoint.
-	CertificateIssuerRef cmmetav1.ObjectReference `json:"certificateIssuerRef"`
+	CertificateIssuerRef cmmetav1.IssuerReference `json:"certificateIssuerRef"`
 	// Image is the specification of the registry server image.
 	// +kubebuilder:validation:Optional
 	Image *ImageSpec `json:"image,omitempty"`
@@ -86,7 +86,7 @@ type MTLSAuthenticationSpec struct {
 type RegistryNodeAgentSpec struct {
 	// CertificateIssuerRef is a reference to the cert-manager Issuer or ClusterIssuer
 	// that will generate the Certificate used by the registry node agent on its upload API endpoint.
-	CertificateIssuerRef cmmetav1.ObjectReference `json:"certificateIssuerRef"`
+	CertificateIssuerRef cmmetav1.IssuerReference `json:"certificateIssuerRef"`
 	// Authentication is the specification of the registry node agent authentication mechanism
 	// used to allow SolutionArchive distribution between registry node agents.
 	Authentication AuthenticationSpec `json:"authentication"`
