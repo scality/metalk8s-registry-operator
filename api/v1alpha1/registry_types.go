@@ -37,7 +37,7 @@ const (
 	FileReflectorImageRegistry = "ghcr.io/scality"
 	FileReflectorImageName     = "file-reflector"
 	// renovate: datasource=github-releases depName=scality/file-reflector versioning=semver
-	FileReflectorImageTag          = "v0.2.0"
+	FileReflectorImageTag          = "v0.3.0"
 	DEFAULT_NAMESPACE              = "metalk8s-registry"
 	DEFAULT_ARCHIVES_PATH          = "/srv/scality/metalk8s/archives"
 	DEFAULT_SOLUTIONS_PATH         = "/srv/scality/metalk8s/solutions"
