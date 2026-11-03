@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.18.0
+    controller-gen.kubebuilder.io/version: v0.23.0
   name: solutionarchives.metalk8s.scality.com
 spec:
   group: metalk8s.scality.com
@@ -63,6 +63,7 @@ spec:
           metadata:
             type: object
           spec:
+            description: spec defines the desired state of SolutionArchive
             properties:
               name:
                 description: Name of the SolutionArchive
@@ -113,9 +114,10 @@ spec:
             - version
             type: object
           status:
-            description: SolutionArchiveStatus defines the observed state of SolutionArchive.
+            description: status defines the observed state of SolutionArchive
             properties:
               conditions:
+                description: Conditions of the SolutionArchive.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -171,6 +173,9 @@ spec:
                   - type
                   type: object
                 type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
               nodeSolutionArchives:
                 description: List of NodeSolutionArchive names
                 items:
@@ -202,6 +207,8 @@ spec:
                 description: Expected number of NodeSolutionArchive in Served status
                 type: integer
             type: object
+        required:
+        - spec
         type: object
     served: true
     storage: true

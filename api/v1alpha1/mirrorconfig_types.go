@@ -20,6 +20,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 )
 
 const (
@@ -34,7 +35,7 @@ type MirrorRegistry struct {
 	Prefix string `json:"prefix"`
 }
 
-// MirrorConfigSpec defines the desired state of MirrorConfig.
+// MirrorConfigSpec defines the desired state of MirrorConfig
 type MirrorConfigSpec struct {
 	// Registries lists the upstream registries the workload pulls through the mirror.
 	// +kubebuilder:validation:Optional
@@ -48,6 +49,9 @@ type MirrorConfigStatus struct {
 	// ObservedRegistries lists the prefixes rendered into the ConfigMap.
 	ObservedRegistries []string `json:"observedRegistries,omitempty"`
 	// Conditions of the MirrorConfig.
+	// +listType=map
+	// +listMapKey=type
+	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
@@ -55,26 +59,37 @@ type MirrorConfigStatus struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:shortName=mco
 
-// MirrorConfig is the Schema for the mirrorconfigs API.
+// MirrorConfig is the Schema for the mirrorconfigs API
 type MirrorConfig struct {
-	metav1.TypeMeta   `json:",inline"`
-	metav1.ObjectMeta `json:"metadata,omitempty"`
+	metav1.TypeMeta `json:",inline"`
 
-	Spec   MirrorConfigSpec   `json:"spec,omitempty"`
-	Status MirrorConfigStatus `json:"status,omitempty"`
+	// metadata is a standard object metadata
+	// +optional
+	metav1.ObjectMeta `json:"metadata,omitzero"`
+
+	// spec defines the desired state of MirrorConfig
+	// +required
+	Spec MirrorConfigSpec `json:"spec"`
+
+	// status defines the observed state of MirrorConfig
+	// +optional
+	Status MirrorConfigStatus `json:"status,omitzero"`
 }
 
 // +kubebuilder:object:root=true
 
-// MirrorConfigList contains a list of MirrorConfig.
+// MirrorConfigList contains a list of MirrorConfig
 type MirrorConfigList struct {
 	metav1.TypeMeta `json:",inline"`
-	metav1.ListMeta `json:"metadata,omitempty"`
+	metav1.ListMeta `json:"metadata,omitzero"`
 	Items           []MirrorConfig `json:"items"`
 }
 
 func init() {
-	SchemeBuilder.Register(&MirrorConfig{}, &MirrorConfigList{})
+	SchemeBuilder.Register(func(s *runtime.Scheme) error {
+		s.AddKnownTypes(SchemeGroupVersion, &MirrorConfig{}, &MirrorConfigList{})
+		return nil
+	})
 }
 
 // SetReady sets the Ready condition of the MirrorConfig.

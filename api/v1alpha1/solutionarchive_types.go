@@ -20,6 +20,7 @@ import (
 	rnav1alpha1 "github.com/scality/metalk8s-registry-node-agent/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/ptr"
 )
 
@@ -42,7 +43,11 @@ type SolutionArchiveStatus struct {
 	NodeSolutionArchives []string `json:"nodeSolutionArchives,omitempty"`
 	// Status of each NodeSolutionArchive
 	StatusPerNodeSolutionArchive map[string]NodeSolutionArchiveStatus `json:"statusPerNodeSolutionArchive,omitempty"`
-	Conditions                   []metav1.Condition                   `json:"conditions,omitempty"`
+	// Conditions of the SolutionArchive.
+	// +listType=map
+	// +listMapKey=type
+	// +optional
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
 // +kubebuilder:object:root=true
@@ -58,24 +63,35 @@ type SolutionArchiveStatus struct {
 // +kubebuilder:printcolumn:name="Node Solution Archives",type="string",JSONPath=".status.nodeSolutionArchives",priority=1
 // SolutionArchive is the Schema for the solutionarchives API.
 type SolutionArchive struct {
-	metav1.TypeMeta   `json:",inline"`
-	metav1.ObjectMeta `json:"metadata,omitempty"`
+	metav1.TypeMeta `json:",inline"`
 
-	Spec   rnav1alpha1.SolutionArchiveSpec `json:"spec,omitempty"`
-	Status SolutionArchiveStatus           `json:"status,omitempty"`
+	// metadata is a standard object metadata
+	// +optional
+	metav1.ObjectMeta `json:"metadata,omitzero"`
+
+	// spec defines the desired state of SolutionArchive
+	// +required
+	Spec rnav1alpha1.SolutionArchiveSpec `json:"spec"`
+
+	// status defines the observed state of SolutionArchive
+	// +optional
+	Status SolutionArchiveStatus `json:"status,omitzero"`
 }
 
 // +kubebuilder:object:root=true
 
-// SolutionArchiveList contains a list of SolutionArchive.
+// SolutionArchiveList contains a list of SolutionArchive
 type SolutionArchiveList struct {
 	metav1.TypeMeta `json:",inline"`
-	metav1.ListMeta `json:"metadata,omitempty"`
+	metav1.ListMeta `json:"metadata,omitzero"`
 	Items           []SolutionArchive `json:"items"`
 }
 
 func init() {
-	SchemeBuilder.Register(&SolutionArchive{}, &SolutionArchiveList{})
+	SchemeBuilder.Register(func(s *runtime.Scheme) error {
+		s.AddKnownTypes(SchemeGroupVersion, &SolutionArchive{}, &SolutionArchiveList{})
+		return nil
+	})
 }
 
 func (solutionArchive *SolutionArchive) InitStatus() {

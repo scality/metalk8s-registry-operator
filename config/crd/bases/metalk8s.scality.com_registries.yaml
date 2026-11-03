@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.18.0
+    controller-gen.kubebuilder.io/version: v0.23.0
   name: registries.metalk8s.scality.com
 spec:
   group: metalk8s.scality.com
@@ -65,7 +65,7 @@ spec:
           metadata:
             type: object
           spec:
-            description: RegistrySpec defines the desired state of Registry.
+            description: spec defines the desired state of Registry
             properties:
               agent:
                 description: Agent is the specification of the registry node agent.
@@ -447,7 +447,7 @@ spec:
             - server
             type: object
           status:
-            description: RegistryStatus defines the observed state of Registry.
+            description: status defines the observed state of Registry
             properties:
               agentAvailable:
                 description: Availability of the registry node agent.
@@ -520,6 +520,9 @@ spec:
                   - type
                   type: object
                 type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
               mirrorSyncAvailable:
                 description: Availability of the containerd mirror sync.
                 type: boolean
@@ -596,6 +599,8 @@ spec:
                   including availability and readiness of the registry server and node agent.
                 type: object
             type: object
+        required:
+        - spec
         type: object
     served: true
     storage: true
