@@ -51,6 +51,14 @@ var RegistryNodeProcessReadyDesc = prometheus.NewDesc(
 	nil,
 )
 
+// RegistryNodeProcessAvailableDesc describes the availability of a registry process on a selected node.
+var RegistryNodeProcessAvailableDesc = prometheus.NewDesc(
+	"registry_node_process_available",
+	"Whether the registry process (server or agent) is available on a selected node (1) or not (0).",
+	[]string{labelRegistry, labelNode, labelProcess},
+	nil,
+)
+
 // RegistryCollector is a Prometheus collector that reports metrics from the Registry status.
 type RegistryCollector struct {
 	reader client.Reader
@@ -64,6 +72,7 @@ func NewRegistryCollector(reader client.Reader) *RegistryCollector {
 // Describe sends the descriptors of the metrics reported by the collector.
 func (c *RegistryCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- RegistryNodeProcessReadyDesc
+	ch <- RegistryNodeProcessAvailableDesc
 }
 
 // Collect sends the current metric values, read from the Registry status.
@@ -87,6 +96,10 @@ func (c *RegistryCollector) Collect(ch chan<- prometheus.Metric) {
 				boolToFloat(status.Server.Ready), registry.Name, node, ProcessServer)
 			ch <- prometheus.MustNewConstMetric(RegistryNodeProcessReadyDesc, prometheus.GaugeValue,
 				boolToFloat(status.Agent.Ready), registry.Name, node, ProcessAgent)
+			ch <- prometheus.MustNewConstMetric(RegistryNodeProcessAvailableDesc, prometheus.GaugeValue,
+				boolToFloat(status.Server.Available), registry.Name, node, ProcessServer)
+			ch <- prometheus.MustNewConstMetric(RegistryNodeProcessAvailableDesc, prometheus.GaugeValue,
+				boolToFloat(status.Agent.Available), registry.Name, node, ProcessAgent)
 		}
 	}
 }

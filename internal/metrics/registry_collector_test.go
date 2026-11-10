@@ -34,7 +34,8 @@ import (
 )
 
 const (
-	nodeProcessReadyMetric = "registry_node_process_ready"
+	nodeProcessReadyMetric     = "registry_node_process_ready"
+	nodeProcessAvailableMetric = "registry_node_process_available"
 )
 
 func newScheme() *runtime.Scheme {
@@ -81,6 +82,34 @@ registry_node_process_ready{node="node-2",process="server",registry="my-registry
 		Expect(testutil.CollectAndCompare(NewRegistryCollector(c), strings.NewReader(expected), nodeProcessReadyMetric)).To(Succeed())
 	})
 
+	It("reports the availability of each process on each node", func() {
+		registry := newRegistry(
+			[]string{"node-1", "node-2"},
+			map[string]metalk8sv1alpha1.NodeStatus{
+				"node-1": {
+					Server: metalk8sv1alpha1.ProcessStatus{Available: true, Ready: true},
+					Agent:  metalk8sv1alpha1.ProcessStatus{Available: true, Ready: true},
+				},
+				"node-2": {
+					Server: metalk8sv1alpha1.ProcessStatus{Available: true, Ready: false},
+					Agent:  metalk8sv1alpha1.ProcessStatus{Available: false, Ready: false},
+				},
+			},
+		)
+		c := fake.NewClientBuilder().WithScheme(newScheme()).WithObjects(registry).Build()
+
+		expected := `
+# HELP registry_node_process_available Whether the registry process (server or agent) is available on a selected node (1) or not (0).
+# TYPE registry_node_process_available gauge
+registry_node_process_available{node="node-1",process="agent",registry="my-registry"} 1
+registry_node_process_available{node="node-1",process="server",registry="my-registry"} 1
+registry_node_process_available{node="node-2",process="agent",registry="my-registry"} 0
+registry_node_process_available{node="node-2",process="server",registry="my-registry"} 1
+`
+		Expect(testutil.CollectAndCompare(NewRegistryCollector(c), strings.NewReader(expected),
+			nodeProcessAvailableMetric)).To(Succeed())
+	})
+
 	It("reports nothing when there is no Registry", func() {
 		c := fake.NewClientBuilder().WithScheme(newScheme()).Build()
 		Expect(testutil.CollectAndCount(NewRegistryCollector(c))).To(Equal(0))
@@ -91,7 +120,26 @@ registry_node_process_ready{node="node-2",process="server",registry="my-registry
 			"node-1": {Server: metalk8sv1alpha1.ProcessStatus{Available: true, Ready: true}},
 		})
 		c := fake.NewClientBuilder().WithScheme(newScheme()).WithObjects(registry).Build()
-		Expect(testutil.CollectAndCount(NewRegistryCollector(c), nodeProcessReadyMetric)).To(Equal(0))
+		Expect(testutil.CollectAndCount(NewRegistryCollector(c),
+			nodeProcessReadyMetric, nodeProcessAvailableMetric)).To(Equal(0))
+	})
+
+	It("reports 0 for a selected node with no status", func() {
+		c := fake.NewClientBuilder().WithScheme(newScheme()).
+			WithObjects(newRegistry([]string{"node-1"}, nil)).Build()
+
+		expected := `
+# HELP registry_node_process_available Whether the registry process (server or agent) is available on a selected node (1) or not (0).
+# TYPE registry_node_process_available gauge
+registry_node_process_available{node="node-1",process="agent",registry="my-registry"} 0
+registry_node_process_available{node="node-1",process="server",registry="my-registry"} 0
+# HELP registry_node_process_ready Whether the registry process (server or agent) is ready on a selected node (1) or not (0).
+# TYPE registry_node_process_ready gauge
+registry_node_process_ready{node="node-1",process="agent",registry="my-registry"} 0
+registry_node_process_ready{node="node-1",process="server",registry="my-registry"} 0
+`
+		Expect(testutil.CollectAndCompare(NewRegistryCollector(c), strings.NewReader(expected),
+			nodeProcessReadyMetric, nodeProcessAvailableMetric)).To(Succeed())
 	})
 
 	It("reports nothing when the Registries cannot be listed", func() {
