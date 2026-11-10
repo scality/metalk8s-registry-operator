@@ -59,6 +59,14 @@ var RegistryNodeProcessAvailableDesc = prometheus.NewDesc(
 	nil,
 )
 
+// RegistrySelectedNodesDesc describes the number of nodes selected for a registry.
+var RegistrySelectedNodesDesc = prometheus.NewDesc(
+	"registry_selected_nodes",
+	"Number of nodes selected for the registry, which is the number of expected replicas.",
+	[]string{labelRegistry},
+	nil,
+)
+
 // RegistryCollector is a Prometheus collector that reports metrics from the Registry status.
 type RegistryCollector struct {
 	reader client.Reader
@@ -73,6 +81,7 @@ func NewRegistryCollector(reader client.Reader) *RegistryCollector {
 func (c *RegistryCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- RegistryNodeProcessReadyDesc
 	ch <- RegistryNodeProcessAvailableDesc
+	ch <- RegistrySelectedNodesDesc
 }
 
 // Collect sends the current metric values, read from the Registry status.
@@ -89,6 +98,9 @@ func (c *RegistryCollector) Collect(ch chan<- prometheus.Metric) {
 
 	for i := range registries.Items {
 		registry := &registries.Items[i]
+		ch <- prometheus.MustNewConstMetric(RegistrySelectedNodesDesc, prometheus.GaugeValue,
+			float64(len(registry.Status.SelectedNodes)), registry.Name)
+
 		for _, node := range registry.Status.SelectedNodes {
 			// A selected node with no status yet reports 0 for every process.
 			status := registry.Status.StatusPerNode[node]

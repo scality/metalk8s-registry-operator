@@ -36,6 +36,7 @@ import (
 const (
 	nodeProcessReadyMetric     = "registry_node_process_ready"
 	nodeProcessAvailableMetric = "registry_node_process_available"
+	selectedNodesMetric        = "registry_selected_nodes"
 )
 
 func newScheme() *runtime.Scheme {
@@ -108,6 +109,31 @@ registry_node_process_available{node="node-2",process="server",registry="my-regi
 `
 		Expect(testutil.CollectAndCompare(NewRegistryCollector(c), strings.NewReader(expected),
 			nodeProcessAvailableMetric)).To(Succeed())
+	})
+
+	It("reports the number of selected nodes", func() {
+		registry := newRegistry([]string{"node-1", "node-2", "node-3"}, nil)
+		c := fake.NewClientBuilder().WithScheme(newScheme()).WithObjects(registry).Build()
+
+		expected := `
+# HELP registry_selected_nodes Number of nodes selected for the registry, which is the number of expected replicas.
+# TYPE registry_selected_nodes gauge
+registry_selected_nodes{registry="my-registry"} 3
+`
+		Expect(testutil.CollectAndCompare(NewRegistryCollector(c), strings.NewReader(expected),
+			selectedNodesMetric)).To(Succeed())
+	})
+
+	It("reports zero selected nodes when the Registry status is empty", func() {
+		c := fake.NewClientBuilder().WithScheme(newScheme()).WithObjects(newRegistry(nil, nil)).Build()
+
+		expected := `
+# HELP registry_selected_nodes Number of nodes selected for the registry, which is the number of expected replicas.
+# TYPE registry_selected_nodes gauge
+registry_selected_nodes{registry="my-registry"} 0
+`
+		Expect(testutil.CollectAndCompare(NewRegistryCollector(c), strings.NewReader(expected),
+			selectedNodesMetric)).To(Succeed())
 	})
 
 	It("reports nothing when there is no Registry", func() {
