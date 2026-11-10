@@ -39,7 +39,7 @@ const (
 	labelNode     = "node"
 	labelProcess  = "process"
 
-	// collectTimeout limits the time spent to read Registries during a scrape.
+	// collectTimeout limits the time spent to read resources during a scrape.
 	collectTimeout = 5 * time.Second
 )
 

@@ -223,8 +223,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Expose the Registry business metrics, read from the Registry status at scrape time.
-	ctrlmetrics.Registry.MustRegister(metrics.NewRegistryCollector(mgr.GetCache()))
+	// Expose the Registry and SolutionArchive business metrics, read from their status at scrape time.
+	ctrlmetrics.Registry.MustRegister(
+		metrics.NewRegistryCollector(mgr.GetCache()),
+		metrics.NewSolutionArchiveCollector(mgr.GetCache()),
+	)
 
 	// Load registry-server manifests and store in a struct
 	registryServer := utils.NewRegistryComponent(ctx)
