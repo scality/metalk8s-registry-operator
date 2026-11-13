@@ -1129,6 +1129,16 @@ func getSortedNodeInternalIPs(nodes []corev1.Node) []string {
 	return ips
 }
 
+// getSortedNodeNames returns the sorted names of the given nodes.
+func getSortedNodeNames(nodes []corev1.Node) []string {
+	names := make([]string, 0, len(nodes))
+	for i := range nodes {
+		names = append(names, nodes[i].Name)
+	}
+	slices.Sort(names)
+	return names
+}
+
 // getRegistryServerCA returns the Registry Server CA (ca.crt) and the name of
 // the Secret it was read from, looking at the per-node external server
 // certificate secrets. All per-node certs share the same issuer/CA.

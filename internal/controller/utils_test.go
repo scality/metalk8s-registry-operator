@@ -21,7 +21,25 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
+
+var _ = Describe("getSortedNodeNames", func() {
+	It("returns the sorted names of the given nodes", func() {
+		nodes := []corev1.Node{
+			{ObjectMeta: metav1.ObjectMeta{Name: "node-2"}},
+			{ObjectMeta: metav1.ObjectMeta{Name: "node-1"}},
+		}
+		Expect(getSortedNodeNames(nodes)).To(Equal([]string{"node-1", "node-2"}))
+	})
+
+	It("returns an empty, non-nil slice when there is no node", func() {
+		names := getSortedNodeNames(nil)
+		Expect(names).NotTo(BeNil())
+		Expect(names).To(BeEmpty())
+	})
+})
 
 var _ = Describe("safeNodeName", func() {
 	It("keeps short names without dots unchanged", func() {

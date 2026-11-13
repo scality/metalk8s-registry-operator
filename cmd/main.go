@@ -37,6 +37,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -50,6 +51,7 @@ import (
 	"github.com/scality/metalk8s-registry-operator/charts"
 	"github.com/scality/metalk8s-registry-operator/dist"
 	"github.com/scality/metalk8s-registry-operator/internal/controller"
+	"github.com/scality/metalk8s-registry-operator/internal/metrics"
 	"github.com/scality/metalk8s-registry-operator/internal/utils"
 	webhookv1alpha1 "github.com/scality/metalk8s-registry-operator/internal/webhook/v1alpha1"
 	// +kubebuilder:scaffold:imports
@@ -220,6 +222,13 @@ func main() {
 		setupLog.Error(err, "unable to start manager")
 		os.Exit(1)
 	}
+
+	// Expose the Registry, SolutionArchive and MirrorConfig business metrics, read from their status at scrape time.
+	ctrlmetrics.Registry.MustRegister(
+		metrics.NewRegistryCollector(mgr.GetCache()),
+		metrics.NewSolutionArchiveCollector(mgr.GetCache()),
+		metrics.NewMirrorConfigCollector(mgr.GetCache()),
+	)
 
 	// Load registry-server manifests and store in a struct
 	registryServer := utils.NewRegistryComponent(ctx)

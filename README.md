@@ -254,6 +254,34 @@ env:
         key: endpoint
 ```
 
+## Metrics
+
+The operator exposes business metrics on its metrics endpoint (HTTPS, port
+`8443`). The ServiceMonitor in `config/prometheus` lets Prometheus scrape it.
+The values are read from the status of the custom resources at scrape time.
+All metrics are gauges.
+
+| Metric | Labels | Description |
+|--------|--------|-------------|
+| `registry_node_process_ready` | `registry`, `node`, `process` | 1 if the process (`server` or `agent`) is ready on the selected node, 0 if not |
+| `registry_node_process_available` | `registry`, `node`, `process` | 1 if the process (`server` or `agent`) is available on the selected node, 0 if not |
+| `registry_selected_nodes` | `registry` | Number of nodes selected for the Registry (`status.selectedNodes`). This is the number of expected replicas |
+| `registry_soa_served_replicas` | `name`, `solution_name`, `solution_version` | Number of NodeSolutionArchives in Served status (`status.servedReplicas`). `name` is the name of the SolutionArchive object; `solution_name` and `solution_version` come from `spec.name` and `spec.version` |
+| `registry_mirrorconfig_ready` | `mirrorconfig_namespace`, `name`, `reason` | 1 if the `Ready` condition is True, 0 if not. `reason` is the reason of the condition (`ConfigMapRendered`, `RegistryNotReady` or `MultipleRegistries`), or `Unknown` when the MirrorConfig has no `Ready` condition yet |
+
+Example alert expressions:
+
+```promql
+# A registry process is not ready on a selected node.
+registry_node_process_ready == 0
+
+# A SolutionArchive is not served on any node.
+registry_soa_served_replicas == 0
+
+# A MirrorConfig finds more than one Registry: this is a misconfiguration.
+registry_mirrorconfig_ready{reason="MultipleRegistries"}
+```
+
 ## Building
 
 ```bash

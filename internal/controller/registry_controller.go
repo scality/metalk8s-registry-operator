@@ -179,7 +179,7 @@ func (r *RegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	registry.Status.SelectedNodes = make([]string, 0, len(matchingNodes.Items))
+	registry.Status.SelectedNodes = getSortedNodeNames(matchingNodes.Items)
 	registry.Status.Replicas = ptr.To(len(matchingNodes.Items))
 	registry.Status.NodeIPs = getSortedNodeInternalIPs(matchingNodes.Items)
 	if len(matchingNodes.Items) == 0 {
@@ -207,7 +207,7 @@ func (r *RegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, nil
 	}
 
-	// 6. Update the status.SelectedNodes with the list of matching nodes and deploy node-specific resources
+	// 6. Deploy node-specific resources
 	nbServersAvailable, err = r.reconcileRSPerNodeResources(ctx, registry, matchingNodes, clusterIP)
 	if err != nil {
 		registry.SetAvailable(false)
@@ -374,8 +374,6 @@ func (r *RegistryReconciler) reconcileRNAPerNodeResources(ctx context.Context, r
 				break
 			}
 		}
-		// Update the field "SelectedNodes" in registry Status
-		registry.Status.SelectedNodes = append(registry.Status.SelectedNodes, node.Name)
 		if err := r.ReconcileRNAStatefulSet(ctx, *registry.Spec.Namespace, node.Name, mTLSCAsHash, registry); err != nil {
 			return nbAgentsAvailable, fmt.Errorf("error deploying Registry Node Agent StatefulSet for node %s: %w", node.Name, err)
 		}

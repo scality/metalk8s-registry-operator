@@ -33,7 +33,8 @@ standard Operator SDK layout. Put your change where it belongs:
 
 - API types for the `Registry`, `SolutionArchive` and `MirrorConfig` custom resources live in `api/v1alpha1`;
 - reconcilers live in `internal/controller`, admission webhooks in `internal/webhook/v1alpha1`,
-  and shared helpers in `internal/utils`;
+  shared helpers in `internal/utils`, and the Prometheus collectors for the business metrics
+  in `internal/metrics`;
 - kustomize bases and overlays live in `config/`, the `static-oci-registry` manifest in `charts/`;
 - the Ginkgo suites live in `test/` (`e2e`, with its `helpers` package, and `integration`).
 
@@ -49,6 +50,7 @@ standard Operator SDK layout. Put your change where it belongs:
 ├── hack/                  # Build and development scripts
 ├── internal/              # Internal packages (not importable)
 │   ├── controller/        # Kubernetes controller logic
+│   ├── metrics/           # Prometheus collectors for the business metrics
 │   ├── utils/             # Shared internal utilities
 │   └── webhook/           # Admission webhook handlers
 │       └── v1alpha1/      # Webhook handlers for v1alpha1 API
