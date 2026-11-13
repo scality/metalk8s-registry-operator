@@ -37,7 +37,7 @@ const (
 var SolutionArchiveServedReplicasDesc = prometheus.NewDesc(
 	"registry_soa_served_replicas",
 	"Number of NodeSolutionArchives of the SolutionArchive in Served status.",
-	[]string{labelSolutionName, labelSolutionVersion},
+	[]string{labelName, labelSolutionName, labelSolutionVersion},
 	nil,
 )
 
@@ -71,6 +71,6 @@ func (c *SolutionArchiveCollector) Collect(ch chan<- prometheus.Metric) {
 	for i := range solutionArchives.Items {
 		soa := &solutionArchives.Items[i]
 		ch <- prometheus.MustNewConstMetric(SolutionArchiveServedReplicasDesc, prometheus.GaugeValue,
-			float64(ptr.Deref(soa.Status.ServedReplicas, 0)), soa.Spec.Name, soa.Spec.Version)
+			float64(ptr.Deref(soa.Status.ServedReplicas, 0)), soa.Name, soa.Spec.Name, soa.Spec.Version)
 	}
 }

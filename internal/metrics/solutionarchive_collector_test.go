@@ -55,8 +55,8 @@ var _ = Describe("SolutionArchiveCollector", func() {
 		expected := `
 # HELP registry_soa_served_replicas Number of NodeSolutionArchives of the SolutionArchive in Served status.
 # TYPE registry_soa_served_replicas gauge
-registry_soa_served_replicas{solution_name="my-solution",solution_version="1.0.0"} 3
-registry_soa_served_replicas{solution_name="my-solution",solution_version="2.0.0"} 1
+registry_soa_served_replicas{name="my-solution-1.0.0",solution_name="my-solution",solution_version="1.0.0"} 3
+registry_soa_served_replicas{name="my-solution-2.0.0",solution_name="my-solution",solution_version="2.0.0"} 1
 `
 		Expect(testutil.CollectAndCompare(NewSolutionArchiveCollector(c), strings.NewReader(expected),
 			soaServedReplicasMetric)).To(Succeed())
@@ -64,13 +64,29 @@ registry_soa_served_replicas{solution_name="my-solution",solution_version="2.0.0
 
 	It("reports zero served replicas when the SolutionArchive status is empty", func() {
 		c := fake.NewClientBuilder().WithScheme(newScheme()).WithObjects(
-			newSolutionArchive("my-solution", "1.0.0", nil),
+			newSolutionArchive("other-solution", "1.0.0", nil),
 		).Build()
 
 		expected := `
 # HELP registry_soa_served_replicas Number of NodeSolutionArchives of the SolutionArchive in Served status.
 # TYPE registry_soa_served_replicas gauge
-registry_soa_served_replicas{solution_name="my-solution",solution_version="1.0.0"} 0
+registry_soa_served_replicas{name="other-solution-1.0.0",solution_name="other-solution",solution_version="1.0.0"} 0
+`
+		Expect(testutil.CollectAndCompare(NewSolutionArchiveCollector(c), strings.NewReader(expected),
+			soaServedReplicasMetric)).To(Succeed())
+	})
+
+	It("reports one series per SolutionArchive when two share the same name and version", func() {
+		first := newSolutionArchive("my-solution", "1.0.0", ptr.To(3))
+		second := newSolutionArchive("my-solution", "1.0.0", ptr.To(1))
+		second.Name = "my-solution-1.0.0-duplicate"
+		c := fake.NewClientBuilder().WithScheme(newScheme()).WithObjects(first, second).Build()
+
+		expected := `
+# HELP registry_soa_served_replicas Number of NodeSolutionArchives of the SolutionArchive in Served status.
+# TYPE registry_soa_served_replicas gauge
+registry_soa_served_replicas{name="my-solution-1.0.0",solution_name="my-solution",solution_version="1.0.0"} 3
+registry_soa_served_replicas{name="my-solution-1.0.0-duplicate",solution_name="my-solution",solution_version="1.0.0"} 1
 `
 		Expect(testutil.CollectAndCompare(NewSolutionArchiveCollector(c), strings.NewReader(expected),
 			soaServedReplicasMetric)).To(Succeed())
