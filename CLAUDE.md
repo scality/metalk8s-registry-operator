@@ -2,10 +2,10 @@
 
 This is a **Go Kubernetes operator** that manages registry infrastructure for distributing Solution Archives (ISO images) across MetalK8s clusters. It contains:
 
-- CRD definitions for `Registry` and `SolutionArchive` resources (`api/v1alpha1/`)
+- CRD definitions for `Registry`, `SolutionArchive` and `MirrorConfig` resources (`api/v1alpha1/`)
 - Reconciliation controllers (`internal/controller/`)
 - Validation/mutation webhooks (`internal/webhook/v1alpha1/`)
-- Helm charts for deployment (`charts/`)
+- Registry server manifests embedded and applied by the operator at runtime (`charts/`)
 - Kustomize manifests (`config/`)
 - Integration tests using envtest (`test/integration/`)
 - End-to-end tests against a live cluster (`test/e2e/`)
