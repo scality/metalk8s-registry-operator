@@ -1,6 +1,6 @@
 module github.com/scality/metalk8s-registry-operator
 
-go 1.27.3
+go 1.27.4
 
 require (
 	github.com/cert-manager/cert-manager v1.21.3
