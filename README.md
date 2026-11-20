@@ -77,6 +77,7 @@ The spec includes:
 | `spec.priorityClassName` | PriorityClass for the registry node agent and registry server pods |
 | `spec.server` | Registry server image and TLS certificate issuer reference |
 | `spec.agent` | Registry node agent image, TLS issuer, and mTLS authentication (CA secret ref) |
+| `spec.agent.garbageCollector.disable` | Disable the node agent garbage collector, defaults to `false`. A change restarts all agent pods. When enabled again, it removes the ISO files with no `NodeSolutionArchive` |
 | `spec.mirrorPropagation` | Containerd mirror config propagation: mirror ConfigMap generation and its sync DaemonSet. Fields: `enabled` (default true), `image` (file-reflector), `containerdConfigPath` (default `/etc/containerd/certs.d`), `nodeSelector`, `tolerations`, `ignorePaths` |
 
 See [config/samples/metalk8s_v1alpha1_registry.yaml](config/samples/metalk8s_v1alpha1_registry.yaml) for a full example.
