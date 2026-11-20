@@ -120,6 +120,20 @@ spec:
                     required:
                     - name
                     type: object
+                  garbageCollector:
+                    description: GarbageCollector is the specification of the registry
+                      node agent garbage collector.
+                    properties:
+                      disable:
+                        default: false
+                        description: |-
+                          Disable stops the garbage collector, for example to store an ISO file
+                          before its NodeSolutionArchive exists. A change restarts all agent pods.
+                          When enabled again, it removes the ISO files with no NodeSolutionArchive.
+                        type: boolean
+                    required:
+                    - disable
+                    type: object
                   image:
                     description: Image is the specification of the registry node agent
                       image.

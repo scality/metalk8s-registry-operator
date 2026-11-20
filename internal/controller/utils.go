@@ -7,6 +7,7 @@ import (
 	"slices"
 
 	"context"
+	"strconv"
 	"strings"
 	"time"
 
@@ -612,7 +613,7 @@ func (r *RegistryReconciler) ReconcileRNAStatefulSet(ctx context.Context, regist
 		return err
 	}
 
-	// Set Environment Variables (DOWNLOAD_HOST, LOGLEVEL)
+	// Set Environment Variables (DOWNLOAD_HOST, LOGLEVEL, REGISTRY_DISABLE_GC)
 	registryNodeAgentStatefulSet.setRNAEnvVariables(nodeName, registryNamespace, registry)
 
 	controllerutil.AddFinalizer(registryNodeAgentStatefulSet.sts, FINALIZER_NAME)
@@ -877,6 +878,17 @@ func (cpt componentSts) setRNAEnvVariables(nodeName string, registryNamespace st
 		cpt.sts.Spec.Template.Spec.Containers[0].Env = append(cpt.sts.Spec.Template.Spec.Containers[0].Env, logLevel)
 	} else {
 		cpt.sts.Spec.Template.Spec.Containers[0].Env[idx] = logLevel
+	}
+
+	// Change REGISTRY_DISABLE_GC
+	disableGC := corev1.EnvVar{
+		Name:  "REGISTRY_DISABLE_GC",
+		Value: strconv.FormatBool(registry.IsGarbageCollectorDisabled()),
+	}
+	if idx, exists := environmentMapping["REGISTRY_DISABLE_GC"]; !exists {
+		cpt.sts.Spec.Template.Spec.Containers[0].Env = append(cpt.sts.Spec.Template.Spec.Containers[0].Env, disableGC)
+	} else {
+		cpt.sts.Spec.Template.Spec.Containers[0].Env[idx] = disableGC
 	}
 }
 

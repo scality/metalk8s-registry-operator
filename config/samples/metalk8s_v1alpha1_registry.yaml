@@ -40,3 +40,5 @@ spec:
       name: metalk8s-registry-agent
       tag: v1.2.3
       pullPolicy: IfNotPresent
+    garbageCollector:
+      disable: false

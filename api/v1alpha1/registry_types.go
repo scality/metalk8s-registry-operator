@@ -94,6 +94,19 @@ type RegistryNodeAgentSpec struct {
 	// Image is the specification of the registry node agent image.
 	// +kubebuilder:validation:Optional
 	Image *ImageSpec `json:"image,omitempty"`
+	// GarbageCollector is the specification of the registry node agent garbage collector.
+	// +kubebuilder:validation:Optional
+	GarbageCollector *GarbageCollectorSpec `json:"garbageCollector,omitempty"`
+}
+
+// GarbageCollectorSpec configures the garbage collector that removes archives
+// and mounts with no matching NodeSolutionArchive.
+type GarbageCollectorSpec struct {
+	// Disable stops the garbage collector, for example to store an ISO file
+	// before its NodeSolutionArchive exists. A change restarts all agent pods.
+	// When enabled again, it removes the ISO files with no NodeSolutionArchive.
+	// +kubebuilder:default=false
+	Disable bool `json:"disable"`
 }
 
 type MonitoringSpec struct {
@@ -395,6 +408,12 @@ func (r *Registry) IsMirrorPropagationEnabled() bool {
 // It defaults to false when the monitoring section is omitted.
 func (r *Registry) IsMonitoringEnabled() bool {
 	return r.Spec.Monitoring != nil && r.Spec.Monitoring.Enabled
+}
+
+// IsGarbageCollectorDisabled returns whether the registry node agent garbage
+// collector is disabled. It defaults to false when the section is omitted.
+func (r *Registry) IsGarbageCollectorDisabled() bool {
+	return r.Spec.Agent.GarbageCollector != nil && r.Spec.Agent.GarbageCollector.Disable
 }
 
 // GetMirrorPropagationImage returns the file-reflector image spec, with its

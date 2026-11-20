@@ -41,6 +41,27 @@ var _ = Describe("Registry", func() {
 		})
 	})
 
+	Describe("IsGarbageCollectorDisabled", func() {
+		It("Should return false when garbageCollector section is nil (default)", func() {
+			r := &Registry{Spec: RegistrySpec{Agent: RegistryNodeAgentSpec{GarbageCollector: nil}}}
+			Expect(r.IsGarbageCollectorDisabled()).To(BeFalse())
+		})
+
+		It("Should return false when the garbage collector is explicitly enabled", func() {
+			r := &Registry{Spec: RegistrySpec{Agent: RegistryNodeAgentSpec{
+				GarbageCollector: &GarbageCollectorSpec{Disable: false},
+			}}}
+			Expect(r.IsGarbageCollectorDisabled()).To(BeFalse())
+		})
+
+		It("Should return true when the garbage collector is explicitly disabled", func() {
+			r := &Registry{Spec: RegistrySpec{Agent: RegistryNodeAgentSpec{
+				GarbageCollector: &GarbageCollectorSpec{Disable: true},
+			}}}
+			Expect(r.IsGarbageCollectorDisabled()).To(BeTrue())
+		})
+	})
+
 	Describe("IsMirrorPropagationEnabled", func() {
 		It("Should return true when mirrorPropagation section is nil (default)", func() {
 			By("creating a Registry with no mirrorPropagation section")
