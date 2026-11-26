@@ -595,6 +595,37 @@ var _ = Describe("Registry Controller", func() {
 			Expect(solutions.HostPath.Path).To(Equal("/srv/scality/metalk8s/solutions"))
 			Expect(solutions.HostPath.Type).To(HaveValue(Equal(corev1.HostPathDirectoryOrCreate)))
 
+			By("checking the node agent manager uses the host paths for archives and solutions")
+			manager := rnaSts.Spec.Template.Spec.Containers[0]
+			Expect(manager.Env).To(ContainElements(
+				corev1.EnvVar{Name: "SOLUTION_ARCHIVES_LOCATION", Value: "/srv/scality/metalk8s/archives"},
+				corev1.EnvVar{Name: "SOLUTIONS_LOCATION", Value: "/srv/scality/metalk8s/solutions"},
+			))
+			managerMounts := map[string]corev1.VolumeMount{}
+			for _, mount := range manager.VolumeMounts {
+				managerMounts[mount.Name] = mount
+			}
+			Expect(managerMounts["metalk8s-registry-node-agent-archives"].MountPath).
+				To(Equal("/srv/scality/metalk8s/archives"))
+			Expect(managerMounts["metalk8s-registry-node-agent-solutions"].MountPath).
+				To(Equal("/srv/scality/metalk8s/solutions"))
+			// Only the mount path changes: the propagation comes from the base manifest.
+			Expect(managerMounts["metalk8s-registry-node-agent-archives"].MountPropagation).
+				To(HaveValue(Equal(corev1.MountPropagationBidirectional)))
+
+			By("checking the setup init container uses the host paths")
+			setup := rnaSts.Spec.Template.Spec.InitContainers[0]
+			Expect(setup.Env).To(ContainElements(
+				corev1.EnvVar{Name: "SOLUTION_ARCHIVES_LOCATION", Value: "/srv/scality/metalk8s/archives"},
+				corev1.EnvVar{Name: "SOLUTIONS_LOCATION", Value: "/srv/scality/metalk8s/solutions"},
+			))
+			setupMounts := map[string]string{}
+			for _, mount := range setup.VolumeMounts {
+				setupMounts[mount.Name] = mount.MountPath
+			}
+			Expect(setupMounts).To(HaveKeyWithValue("metalk8s-registry-node-agent-archives", "/srv/scality/metalk8s/archives"))
+			Expect(setupMounts).To(HaveKeyWithValue("metalk8s-registry-node-agent-solutions", "/srv/scality/metalk8s/solutions"))
+
 			By("checking the node agent garbage collector is enabled by default")
 			Expect(rnaSts.Spec.Template.Spec.Containers[0].Env).To(
 				ContainElement(corev1.EnvVar{Name: "REGISTRY_DISABLE_GC", Value: "false"}),
