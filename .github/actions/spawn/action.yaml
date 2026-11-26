@@ -27,7 +27,7 @@ runs:
         aws-region: eu-north-1
 
     - name: Spawn the cluster
-      uses: scality/platform-spawner@97a532b7c374fd0f46f573c5c6d3be36cf11a228 # v3.2.5
+      uses: scality/platform-spawner@785738a0d5f5d3b9e5051a0142f2ecd00cd401ad # v3.3.0
       with:
           artifacts_user: ${{ inputs.artifacts_user }}
           artifacts_password: ${{ inputs.artifacts_password }}
