@@ -595,6 +595,40 @@ var _ = Describe("Registry Controller", func() {
 			Expect(solutions.HostPath.Path).To(Equal("/srv/scality/metalk8s/solutions"))
 			Expect(solutions.HostPath.Type).To(HaveValue(Equal(corev1.HostPathDirectoryOrCreate)))
 
+			By("checking the node agent garbage collector is enabled by default")
+			Expect(rnaSts.Spec.Template.Spec.Containers[0].Env).To(
+				ContainElement(corev1.EnvVar{Name: "REGISTRY_DISABLE_GC", Value: "false"}),
+			)
+
+			setGarbageCollectorDisable := func(disable bool) {
+				Eventually(func(g Gomega) {
+					updated := &metalk8sv1alpha1.Registry{}
+					g.Expect(k8sClient.Get(ctx, typeNamespacedName, updated)).To(Succeed())
+					updated.Spec.Agent.GarbageCollector = &metalk8sv1alpha1.GarbageCollectorSpec{Disable: disable}
+					g.Expect(k8sClient.Update(ctx, updated)).To(Succeed())
+				}, timeout, interval).Should(Succeed())
+			}
+			expectDisableGCEnv := func(value string) {
+				Eventually(func(g Gomega) {
+					sts := &appsv1.StatefulSet{}
+					g.Expect(k8sClient.Get(ctx, types.NamespacedName{
+						Name:      "metalk8s-registry-node-agent-node-3",
+						Namespace: "namespace-test-2",
+					}, sts)).To(Succeed())
+					g.Expect(sts.Spec.Template.Spec.Containers[0].Env).To(
+						ContainElement(corev1.EnvVar{Name: "REGISTRY_DISABLE_GC", Value: value}),
+					)
+				}, timeout, interval).Should(Succeed())
+			}
+
+			By("disabling the node agent garbage collector")
+			setGarbageCollectorDisable(true)
+			expectDisableGCEnv("true")
+
+			By("enabling the node agent garbage collector again")
+			setGarbageCollectorDisable(false)
+			expectDisableGCEnv("false")
+
 			By("checking the containerd mirror sync DaemonSet")
 			syncDS := &appsv1.DaemonSet{}
 			Expect(k8sClient.Get(ctx, types.NamespacedName{
