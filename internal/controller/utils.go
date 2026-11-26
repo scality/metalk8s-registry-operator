@@ -613,7 +613,7 @@ func (r *RegistryReconciler) ReconcileRNAStatefulSet(ctx context.Context, regist
 		return err
 	}
 
-	// Set Environment Variables (DOWNLOAD_HOST, LOGLEVEL, REGISTRY_DISABLE_GC)
+	// Set Environment Variables (DOWNLOAD_HOST, LOGLEVEL, REGISTRY_DISABLE_GC, SOLUTION_ARCHIVES_LOCATION, SOLUTIONS_LOCATION)
 	registryNodeAgentStatefulSet.setRNAEnvVariables(nodeName, registryNamespace, registry)
 
 	controllerutil.AddFinalizer(registryNodeAgentStatefulSet.sts, FINALIZER_NAME)
@@ -825,6 +825,32 @@ func (cpt componentSts) setRNAVolumes(registry *metalk8sv1alpha1.Registry, nodeN
 		return err
 	}
 
+	// Mount archives and solutions at their host paths in all containers
+	podSpec := &cpt.sts.Spec.Template.Spec
+	setMountPath := func(volumeName string, path string) error {
+		for _, containers := range [][]corev1.Container{podSpec.InitContainers, podSpec.Containers} {
+			for idCont := range containers {
+				found := false
+				for idMount := range containers[idCont].VolumeMounts {
+					if containers[idCont].VolumeMounts[idMount].Name == volumeName {
+						containers[idCont].VolumeMounts[idMount].MountPath = path
+						found = true
+					}
+				}
+				if !found {
+					return fmt.Errorf("volume mount %s not found in container %s", volumeName, containers[idCont].Name)
+				}
+			}
+		}
+		return nil
+	}
+	if err := setMountPath("metalk8s-registry-node-agent-archives", *registry.Spec.ArchivesPath); err != nil {
+		return err
+	}
+	if err := setMountPath("metalk8s-registry-node-agent-solutions", *registry.Spec.SolutionsPath); err != nil {
+		return err
+	}
+
 	// External Server TLS Certificate
 	if err := setSecretVolumeName(TLS_SERVER_EXTERNAL_CERTS_NAME,
 		fmt.Sprintf("%s-%s", RNA_EXTERNAL_SERVER_CERTIFICATE_PREFIX, nodeToken)); err != nil {
@@ -853,42 +879,37 @@ func (cpt componentSts) setRNAVolumes(registry *metalk8sv1alpha1.Registry, nodeN
 
 func (cpt componentSts) setRNAEnvVariables(nodeName string, registryNamespace string, registry *metalk8sv1alpha1.Registry) {
 	nodeToken := safeNodeName(nodeName)
-	environmentMapping := make(map[string]int)
-	for id, env := range cpt.sts.Spec.Template.Spec.Containers[0].Env {
-		environmentMapping[env.Name] = id
+	manager := &cpt.sts.Spec.Template.Spec.Containers[0]
+	setup := &cpt.sts.Spec.Template.Spec.InitContainers[0]
+
+	// Replace the variable if the container has it, else add it
+	setEnv := func(container *corev1.Container, envVar corev1.EnvVar) {
+		for idx := range container.Env {
+			if container.Env[idx].Name == envVar.Name {
+				container.Env[idx] = envVar
+				return
+			}
+		}
+		container.Env = append(container.Env, envVar)
 	}
 
-	// Change DOWNLOAD_HOST
-	downloadHost := corev1.EnvVar{
+	setEnv(manager, corev1.EnvVar{
 		Name:  "DOWNLOAD_HOST",
 		Value: fmt.Sprintf("%s-%s.%s.svc", RNA_INTERNAL_SERVER_CERTIFICATE_CN, nodeToken, registryNamespace),
-	}
-	if idx, exists := environmentMapping["DOWNLOAD_HOST"]; !exists {
-		cpt.sts.Spec.Template.Spec.Containers[0].Env = append(cpt.sts.Spec.Template.Spec.Containers[0].Env, downloadHost)
-	} else {
-		cpt.sts.Spec.Template.Spec.Containers[0].Env[idx] = downloadHost
-	}
-
-	// Change LOGGER_LOG_LEVEL
-	logLevel := corev1.EnvVar{
+	})
+	setEnv(manager, corev1.EnvVar{
 		Name:  "LOGGER_LOG_LEVEL",
 		Value: *registry.Spec.LogLevel,
-	}
-	if idx, exists := environmentMapping["LOGGER_LOG_LEVEL"]; !exists {
-		cpt.sts.Spec.Template.Spec.Containers[0].Env = append(cpt.sts.Spec.Template.Spec.Containers[0].Env, logLevel)
-	} else {
-		cpt.sts.Spec.Template.Spec.Containers[0].Env[idx] = logLevel
-	}
-
-	// Change REGISTRY_DISABLE_GC
-	disableGC := corev1.EnvVar{
+	})
+	setEnv(manager, corev1.EnvVar{
 		Name:  "REGISTRY_DISABLE_GC",
 		Value: strconv.FormatBool(registry.IsGarbageCollectorDisabled()),
-	}
-	if idx, exists := environmentMapping["REGISTRY_DISABLE_GC"]; !exists {
-		cpt.sts.Spec.Template.Spec.Containers[0].Env = append(cpt.sts.Spec.Template.Spec.Containers[0].Env, disableGC)
-	} else {
-		cpt.sts.Spec.Template.Spec.Containers[0].Env[idx] = disableGC
+	})
+
+	// Same paths as the volume mounts set in setRNAVolumes
+	for _, container := range []*corev1.Container{setup, manager} {
+		setEnv(container, corev1.EnvVar{Name: "SOLUTION_ARCHIVES_LOCATION", Value: *registry.Spec.ArchivesPath})
+		setEnv(container, corev1.EnvVar{Name: "SOLUTIONS_LOCATION", Value: *registry.Spec.SolutionsPath})
 	}
 }
 

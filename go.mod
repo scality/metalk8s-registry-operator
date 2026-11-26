@@ -10,7 +10,7 @@ require (
 	github.com/onsi/gomega v1.44.0
 	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.95.2
 	github.com/prometheus/client_golang v1.25.0
-	github.com/scality/metalk8s-registry-node-agent v0.0.1-alpha.15
+	github.com/scality/metalk8s-registry-node-agent v0.0.1-alpha.16
 	go.uber.org/zap v1.28.0
 	k8s.io/api v0.37.2
 	k8s.io/apiextensions-apiserver v0.37.2
